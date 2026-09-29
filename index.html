@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Logística Simples - Controle de Estoque Inteligente</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brandDarkBlue: '#0F2C59',
+                        brandLightBlue: '#1D4ED8',
+                        brandGreen: '#2E7D32',
+                        brandLightGreen: '#E8F5E9',
+                        bgGray: '#F8FAFC'
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; transition: background-color 0.3s; -webkit-tap-highlight-color: transparent; }
+        .fade-in { animation: fadeIn 0.3s ease forwards; }
+        @keyframes fadeIn {
+            from { opacity:0; transform:translateY(6px); }
+            to { opacity:1; transform:translateY(0); }
+        }
+        
+        @media print {
+            body { background: white !important; padding: 0; color: black !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .shadow-sm, .shadow-md, .shadow-lg { box-shadow: none !important; }
+            .border { border: 1px solid #ddd !important; }
+            tr { page-break-inside: avoid; }
+        }
+        .print-only { display: none; }
+        .fade{animation:fadeIn 0.3s ease forwards;} 
+        .input{width:100%;padding:12px 14px;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;color:#1f2937;font-size:14px;} 
+        .label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:#9ca3af;margin:8px 0 4px;} 
+        .dark .input{background:#374151;color:white;border-color:#4b5563;}
+
+        /* Animação para os Toasts */
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+        .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+        .toast-exit { animation: slideOut 0.3s ease-in forwards; }
+    </style>
+</head>
+
+<body class="bg-[#F8FAFC] text-gray-800 dark:bg-gray-900 dark:text-gray-100 min-h-screen antialiased">
+
+    <!-- Container do Toast / Notificações -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full px-4 pointer-events-none"></div>
+
+    <!-- Container do Modal de Confirmação -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm hidden p-4 fade">
+      <div class="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl border dark:border-gray-700 text-center">
+        <div class="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-500 flex items-center justify-center text-xl mx-auto mb-3">
+          <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h3 id="confirm-title" class="text-base font-bold text-gray-900 dark:text-white mb-1">Confirmação</h3>
+        <p id="confirm-msg" class="text-xs text-gray-500 dark:text-gray-400 mb-6"></p>
+        <div class="flex gap-2">
+          <button id="confirm-btn-cancel" class="flex-1 py-2.5 rounded-xl border text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancelar</button>
+          <button id="confirm-btn-ok" class="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="print-area" class="print-only max-w-4xl mx-auto p-4"></div>
+    
+    <div id="app" class="no-print max-w-5xl mx-auto min-h-screen flex flex-col justify-between p-3 sm:p-6 lg:p-8"></div>
+
+    <script>
+
+var app = document.getElementById("app");
+
+/* =========================================================
+   SUPABASE — armazenamento online do Logística Simples
+   A chave publishable/anon é apropriada para uso no navegador.
+   O banco deve permanecer protegido por RLS.
+   ========================================================= */
+var SUPABASE_URL = 'https://okrgeuuqbadsexsumjbz.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_2pow_sr87FSuqs7kZMYnBg_RbE5Sk7C';
+var SUPABASE_REST = SUPABASE_URL + '/rest/v1';
+var K = 'ls_pro';
+var AUTH_KEY = 'ls_auth';
+var onlineReady = false;
+var onlineSaving = false;
+
+// CHAVE DE SEGURANÇA PARA CADASTRAR COORDENADOR
+var COORDINATOR_KEY = null; // tokens válidos são gerados pelo Painel Dev
+
+function sbHeaders(extra){
+  var h = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json'
+  };
+  if(extra) Object.keys(extra).forEach(function(k){ h[k] = extra[k]; });
+  return h;
+}
+
+function sbUrl(table, query){
+  return SUPABASE_REST + '/' + table + (query ? '?' + query : '');
+}
+
+async function sbRequest(table, method, query, body, extraHeaders){
+  var resp = await fetch(sbUrl(table, query), {
+    method: method || 'GET',
+    headers: sbHeaders(extraHeaders),
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  var text = await resp.text();
+  var data = null;
+  if(text){ try { data = JSON.parse(text); } catch(e) { data = text; } }
+  if(!resp.ok){
+    var detalhe = data && data.message ? data.message : (data && data.error ? data.error : text);
+    throw new Error('Supabase ' + resp.status + ': ' + (detalhe || 'erro na API'));
+  }
+  return data;
+}
+
+function dadosIniciais(){
+  return {
+    materiais:[
+      {id:1,nome:'Papel A4',cat:'Administrativo',qtd:18,min:20,un:'pacote'},
+      {id:2,nome:'Caneta azul',cat:'Material escolar',qtd:120,min:30,un:'unidade'},
+      {id:3,nome:'Papel higiênico',cat:'Limpeza',qtd:12,min:15,un:'pacote'}
+    ],
+    equip:[
+      {id:1,nome:'Notebook Lenovo',modelo:'IdeaPad 3',cor:'Azul',total:10,disp:10,emp:0},
+      {id:2,nome:'Tablet Samsung',modelo:'Galaxy Tab A',cor:'Amarelo',total:15,disp:15,emp:0},
+      {id:3,nome:'Projetor Epson',modelo:'PowerLite',cor:'Cinza',total:5,disp:5,emp:0}
+    ],
+    emp:[],
+    hist:[]
+  };
+}
+
+function normalizarUsuarios(lista){
+  lista = Array.isArray(lista) ? lista : [];
+  lista = lista.map(function(u){
+    var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
+    return Object.assign({}, u, {perfil: p});
+  }).filter(function(u){
+    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
+  });
+
+  var temAdmin = lista.some(function(u){ return String(u.usuario || '').toLowerCase() === 'admin'; });
+  if(!temAdmin){
+    lista.unshift({id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'});
+  }
+  return lista;
+}
+
+function normalizarDb(obj){
+  var base = dadosIniciais();
+  var x = obj && typeof obj === 'object' ? obj : {};
+  db = {
+    materiais: Array.isArray(x.materiais) ? x.materiais : base.materiais,
+    equip: Array.isArray(x.equip) ? x.equip : base.equip,
+    emp: Array.isArray(x.emp) ? x.emp : [],
+    hist: Array.isArray(x.hist) ? x.hist : []
+  };
+
+  if(db.equip && Array.isArray(db.equip)){
+    db.equip = db.equip.map(function(e){
+      return {
+        id: e.id || Date.now(),
+        nome: e.nome || 'Equipamento',
+        modelo: e.modelo || '-',
+        cor: e.cor || e.pat || '-',
+        total: typeof e.total === 'number' ? e.total : 1,
+        disp: typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),
+        emp: typeof e.emp === 'number' ? e.emp : 0
+      };
+    });
+  }
+}
+
+var usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+var userSessao = sessionStorage.getItem('ls_user');
+var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
+var escolaAtual = localStorage.getItem('ls_escola') || '';
+var alertasLidos = false;
+var db = null;
+
+normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
+localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+
+function storageKey(escolaNome){
+  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]+/gi,'_').replace(/^_|_$/g,'');
+}
+
+function usarEscola(escolaNome){
+  escolaNome = String(escolaNome || '').trim();
+  if(!escolaNome) return;
+  escolaAtual = escolaNome;
+  escola = escolaNome;
+  K = storageKey(escolaNome);
+  localStorage.setItem('ls_escola', escolaNome);
+}
+
+async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
+  escolaNome = String(escolaNome || '').trim();
+  if(!escolaNome) return false;
+
+  var keyAnterior = K;
+  usarEscola(escolaNome);
+
+  try{
+    var rows = await sbRequest('ls_app_data', 'GET', 'select=*&escola=eq.' + encodeURIComponent(escolaNome) + '&limit=1');
+    var row = rows && rows.length ? rows[0] : null;
+
+    if(row){
+      usuarios = normalizarUsuarios(row.usuarios);
+      normalizarDb(row.db);
+      localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+      localStorage.setItem(K, JSON.stringify(db));
+      onlineReady = true;
+      return true;
+    }
+
+    // Primeira utilização desta escola: aproveita o cache local dessa escola,
+    // ou cria o ambiente inicial do protótipo.
+    var cache = JSON.parse(localStorage.getItem(K) || 'null');
+    normalizarDb(cache || dadosIniciais());
+    usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+
+    if(criarSeNaoExistir !== false){
+      await sbRequest('ls_app_data', 'POST', '', {
+        escola: escolaNome,
+        usuarios: usuarios,
+        db: db
+      }, {'Prefer':'return=minimal'});
+    }
+
+    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+    localStorage.setItem(K, JSON.stringify(db));
+    onlineReady = true;
+    return true;
+  }catch(err){
+    onlineReady = false;
+    // Mantém o protótipo funcionando com o cache local se o banco estiver indisponível.
+    var cacheLocal = JSON.parse(localStorage.getItem(K) || 'null');
+    if(cacheLocal) normalizarDb(cacheLocal);
+    if(keyAnterior && keyAnterior !== K){
+      // nada: o cache da escola já foi tentado acima
+    }
+    console.error('Erro ao carregar Supabase:', err);
+    notify('Não foi possível sincronizar com o banco online. O modo local foi mantido.', 'warning');
+    return false;
+  }
+}
+
+async function salvarDadosOnline(){
+  if(!onlineReady || !escola) return false;
+  if(onlineSaving) return false;
+  onlineSaving = true;
+  try{
+    await sbRequest('ls_app_data', 'PATCH', 'escola=eq.' + encodeURIComponent(escola), {
+      usuarios: usuarios,
+      db: db,
+      updated_at: new Date().toISOString()
+    }, {'Prefer':'return=minimal'});
+    return true;
+  }catch(err){
+    console.error('Erro ao salvar no Supabase:', err);
+    notify('Alteração salva neste dispositivo, mas não foi sincronizada com o servidor.', 'warning');
+    return false;
+  }finally{
+    onlineSaving = false;
+  }
+}
+
+function save(){
+  localStorage.setItem(K, JSON.stringify(db));
+  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+  if(onlineReady) salvarDadosOnline();
+}
+
+async function inicializarApp(){
+  if(usuarioAtual && usuarioAtual.escola){
+    var ok = await carregarDadosOnline(usuarioAtual.escola, true);
+    if(ok){
+      var atual = usuarios.find(function(u){ return String(u.usuario).toLowerCase() === String(usuarioAtual.usuario).toLowerCase(); });
+      if(atual){ usuarioAtual = atual; perfil = atual.perfil; sessionStorage.setItem('ls_user', JSON.stringify(atual)); }
+      dashboard();
+      return;
+    }
+  }
+  if(escolaAtual){
+    usarEscola(escolaAtual);
+    normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
+  }
+  telaInicial();
+}
+
+var perfil = (usuarioAtual && usuarioAtual.perfil) ? usuarioAtual.perfil : 'Coordenador';
+var escola = escolaAtual || '';
+
+function esc(x){
+    var v = (x !== null && x !== undefined) ? String(x) : '';
+    return v.replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+    });
+}
+
+// SISTEMA DE NOTIFICAÇÕES (TOAST)
+function notify(texto, tipo) {
+  tipo = tipo || 'success';
+  var container = document.getElementById('toast-container');
+  if (!container) return;
+
+  var toast = document.createElement('div');
+  toast.className = 'toast-enter pointer-events-auto flex items-center gap-3 p-4 rounded-2xl shadow-lg border text-xs font-semibold ' +
+    (tipo === 'error' ? 'bg-red-600 text-white border-red-700' :
+     tipo === 'warning' ? 'bg-amber-500 text-white border-amber-600' :
+     'bg-gray-900 text-white dark:bg-white dark:text-gray-900 border-gray-800');
+
+  var icone = tipo === 'error' ? 'fa-circle-xmark' :
+              tipo === 'warning' ? 'fa-triangle-exclamation' :
+              'fa-circle-check';
+
+  toast.innerHTML = '<i class="fas ' + icone + ' text-base"></i><span class="flex-1">' + esc(texto) + '</span>';
+  container.appendChild(toast);
+
+  setTimeout(function() {
+    toast.classList.remove('toast-enter');
+    toast.classList.add('toast-exit');
+    setTimeout(function() { toast.remove(); }, 300);
+  }, 3000);
+}
+
+function msg(t, tipo){
+  notify(t, tipo || 'warning');
+}
+
+// MODAL DE CONFIRMAÇÃO PERSONALIZADO
+function pedirConfirmacao(mensagem, aoConfirmar) {
+  var modal = document.getElementById('confirm-modal');
+  var msgEl = document.getElementById('confirm-msg');
+  var btnOk = document.getElementById('confirm-btn-ok');
+  var btnCancel = document.getElementById('confirm-btn-cancel');
+
+  msgEl.textContent = mensagem;
+  modal.classList.remove('hidden');
+
+  function fechar() {
+    modal.classList.add('hidden');
+    btnOk.onclick = null;
+    btnCancel.onclick = null;
+  }
+
+  btnCancel.onclick = fechar;
+  btnOk.onclick = function() {
+    fechar();
+    aoConfirmar();
+  };
+}
+
+// FUNÇÃO PARA ALTERNAR A VISIBILIDADE DOS CAMPOS DE SENHA E TOKEN
+function alternarVisibilidadeCampo(idInput, idIcone) {
+  var campo = document.getElementById(idInput);
+  var icone = document.getElementById(idIcone);
+  if (!campo || !icone) return;
+
+  if (campo.type === 'password') {
+    campo.type = 'text';
+    icone.classList.remove('fa-eye');
+    icone.classList.add('fa-eye-slash');
+  } else {
+    campo.type = 'password';
+    icone.classList.remove('fa-eye-slash');
+    icone.classList.add('fa-eye');
+  }
+}
+
+function head(t,s){
+  return '<div class="flex flex-wrap justify-between items-center gap-3 mb-5 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">' +
+    '<div>' +
+      '<h1 class="text-lg sm:text-2xl font-bold text-brandDarkBlue dark:text-white flex items-center gap-2">' +
+        '<i class="fas fa-school text-brandGreen"></i>' +
+        '<span>' + esc(t || 'Almoxarifado') + '</span>' +
+      '</h1>' +
+      '<p class="text-xs text-brandGreen font-medium mt-0.5">' + s + ' · ' + perfil + '</p>' +
+    '</div>' +
+    '<button onclick="dashboard()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 px-3.5 py-2 rounded-xl text-gray-600 dark:text-gray-200 font-bold text-xs flex items-center gap-2 transition">' +
+      '<i class="fas fa-home"></i> <span>Início</span>' +
+    '</button>' +
+  '</div>';
+}
+
+function shell(x){ app.innerHTML = '<div class="fade">' + x + '</div>'; }
+
+function stat(i,l,n,c){
+  return '<div class="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between">' +
+    '<div>' +
+      '<p class="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-wider">' + l + '</p>' +
+      '<h2 class="text-2xl sm:text-3xl font-extrabold text-' + c + ' mt-0.5">' + n + '</h2>' +
+    '</div>' +
+    '<div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-50 dark:bg-gray-700 flex items-center justify-center text-' + c + ' text-xl sm:text-2xl">' +
+      '<i class="fas fa-' + i + '"></i>' +
+    '</div>' +
+  '</div>';
+}
+
+function tile(i,t,d,f){
+  return '<button onclick="' + f + '()" class="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-brandGreen dark:hover:border-brandGreen transition text-left flex flex-col justify-between group">' +
+    '<div>' +
+      '<div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-gray-700 text-brandDarkBlue dark:text-blue-400 flex items-center justify-center text-xl mb-3 group-hover:bg-brandGreen group-hover:text-white transition">' +
+        '<i class="fas fa-' + i + '"></i>' +
+      '</div>' +
+      '<h3 class="font-bold text-sm sm:text-base text-gray-800 dark:text-white">' + t + '</h3>' +
+      '<p class="text-xs text-gray-400 mt-1 line-clamp-2">' + d + '</p>' +
+    '</div>' +
+  '</button>';
+}
+
+function telaInicial(){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-6">' +
+      '<div class="inline-flex items-center justify-center w-20 h-20 bg-brandDarkBlue text-white rounded-3xl shadow-lg mb-4">' +
+        '<i class="fas fa-school text-3xl"></i>' +
+      '</div>' +
+      '<h1 class="text-2xl sm:text-3xl font-extrabold text-brandDarkBlue dark:text-white">Logística <span class="text-brandGreen">Simples</span></h1>' +
+      '<p class="text-xs sm:text-sm font-semibold text-gray-400 mt-1 uppercase">Gestão de Almoxarifado Escolar</p>' +
+    '</div>' +
+    '<div class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<h2 class="text-lg font-bold text-center">Quem vai acessar?</h2>' +
+      '<p class="text-xs text-gray-400 text-center mt-1 mb-5">Escolha o tipo de acesso para continuar</p>' +
+      '<div class="grid grid-cols-2 gap-3">' +
+        '<button onclick="abrirLogin(\'Coordenador\')" class="p-4 rounded-2xl border-2 border-transparent hover:border-brandGreen bg-blue-50 dark:bg-gray-700 text-brandDarkBlue dark:text-white text-center transition">' +
+          '<i class="fas fa-user-tie text-2xl mb-2 text-brandDarkBlue dark:text-blue-400"></i>' +
+          '<div class="font-bold text-sm">Coordenador</div>' +
+          '<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">Acesso total</div>' +
+        '</button>' +
+        '<button onclick="abrirLogin(\'Professor\')" class="p-4 rounded-2xl border-2 border-transparent hover:border-brandGreen bg-green-50 dark:bg-gray-700 text-brandGreen text-center transition">' +
+          '<i class="fas fa-chalkboard-teacher text-2xl mb-2 text-brandGreen"></i>' +
+          '<div class="font-bold text-sm">Professor</div>' +
+          '<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">Consultas</div>' +
+        '</button>' +
+      '</div>' +
+      '<div class="border-t dark:border-gray-700 mt-5 pt-5 text-center">' +
+        '<p class="text-xs text-gray-400 mb-2">Ainda não possui uma conta?</p>' +
+        '<button onclick="cadastro()" class="text-brandGreen font-bold text-xs sm:text-sm hover:underline inline-flex items-center gap-1.5">' +
+          '<i class="fas fa-user-plus"></i> Fazer cadastro' +
+        '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function cadastro(){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-5">' +
+      '<h1 class="text-2xl font-extrabold text-brandDarkBlue dark:text-white">Criar <span class="text-brandGreen">cadastro</span></h1>' +
+      '<p class="text-xs text-gray-400 mt-1">Crie seu acesso ao Logística Simples</p>' +
+    '</div>' +
+    '<form id="cadastroForm" class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<label class="label">Escola</label>' +
+      '<input id="cescola" class="input" placeholder="Nome da escola" required>' +
+      
+      '<label class="label">E-mail</label>' +
+      '<div class="flex gap-2">' +
+        '<input id="cemail" type="email" class="input" placeholder="seu.email@escola.com" required>' +
+        '<button type="button" id="btnSolicitarToken" onclick="solicitarTokenEmail()" class="hidden bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition">' +
+          'Enviar Token' +
+        '</button>' +
+      '</div>' +
+
+      '<label class="label">Usuário</label>' +
+      '<input id="cuser" class="input" placeholder="Escolha um usuário" required>' +
+      
+      '<label class="label">Senha</label>' +
+      '<div class="relative">' +
+        '<input id="csenha" type="password" class="input pr-10" placeholder="Crie uma senha" minlength="4" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'csenha\', \'iconeSenha\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeSenha" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+
+      '<label class="label">Confirmar senha</label>' +
+      '<div class="relative">' +
+        '<input id="cconfirm" type="password" class="input pr-10" placeholder="Digite a senha novamente" minlength="4" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'cconfirm\', \'iconeConfirm\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeConfirm" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+      
+      '<label class="label">Tipo de acesso</label>' +
+      '<select id="cperfil" class="input" onchange="toggleTokenField()">' +
+        '<option>Professor</option>' +
+        '<option>Coordenador</option>' +
+      '</select>' +
+      
+      '<div id="divToken" class="hidden mt-2">' +
+        '<label class="label text-red-500"><i class="fas fa-key mr-1"></i>Token do Coordenador</label>' +
+        '<div class="relative">' +
+          '<input id="ctoken" type="password" class="input border-red-300 focus:border-red-500 pr-10" placeholder="Informe o token recebido">' +
+          '<button type="button" onclick="alternarVisibilidadeCampo(\'ctoken\', \'iconeToken\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+            '<i id="iconeToken" class="fas fa-eye"></i>' +
+          '</button>' +
+        '</div>' +
+        '' +
+      '</div>' +
+      
+      '<button type="submit" class="w-full bg-brandGreen text-white p-3.5 rounded-xl font-bold mt-5 text-sm hover:opacity-90">' +
+        '<i class="fas fa-check mr-2"></i>Criar cadastro' +
+      '</button>' +
+      '<button type="button" onclick="telaInicial()" class="w-full mt-3 text-gray-400 font-semibold text-xs py-2">← Voltar</button>' +
+    '</form>' +
+  '</div>';
+}
+
+function toggleTokenField(){
+  var perfilEl = document.getElementById('cperfil');
+  var divToken = document.getElementById('divToken');
+  var btnToken = document.getElementById('btnSolicitarToken');
+  
+  if(perfilEl){
+    if(perfilEl.value === 'Coordenador'){
+      if(divToken) divToken.classList.remove('hidden');
+      if(btnToken) btnToken.classList.remove('hidden');
+    } else {
+      if(divToken) divToken.classList.add('hidden');
+      if(btnToken) btnToken.classList.add('hidden');
+    }
+  }
+}
+
+async function solicitarTokenEmail(){
+  var emailEl = document.getElementById('cemail');
+  var escolaEl = document.getElementById('cescola');
+  var email = emailEl ? emailEl.value.trim() : '';
+  var escolaSolicitante = escolaEl ? escolaEl.value.trim() : '';
+
+  if(!email || !email.includes('@')){
+    msg('Por favor, digite um e-mail válido para solicitar o token.', 'error');
+    return;
+  }
+  if(!escolaSolicitante){
+    msg('Informe a escola antes de solicitar o token.', 'error');
+    return;
+  }
+
+  try{
+    var pendentes = await sbRequest('solicitacoes', 'GET',
+      'select=id&email=eq.' + encodeURIComponent(email) +
+      '&escola=eq.' + encodeURIComponent(escolaSolicitante) +
+      '&status=eq.pendente&limit=1');
+
+    if(pendentes && pendentes.length){
+      msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
+      return;
+    }
+
+    await sbRequest('solicitacoes', 'POST', '', {
+      escola: escolaSolicitante,
+      email: email,
+      data: new Date().toLocaleString('pt-BR'),
+      status: 'pendente'
+    }, {'Prefer':'return=minimal'});
+
+    notify('Solicitação enviada! Aguarde a aprovação.', 'success');
+  }catch(err){
+    console.error(err);
+    msg('Não foi possível enviar a solicitação online. Verifique as permissões da tabela solicitacoes no Supabase.', 'error');
+  }
+}
+
+async function criarCadastro(){
+ var escolaEl = document.getElementById('cescola'), userEl = document.getElementById('cuser'),
+ senhaEl = document.getElementById('csenha'), confirmEl = document.getElementById('cconfirm'),
+ perfilEl = document.getElementById('cperfil'), tokenEl = document.getElementById('ctoken'), emailEl = document.getElementById('cemail');
+ 
+ var escolaNova = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
+ var emailNovo = (emailEl && emailEl.value ? emailEl.value : '').trim();
+ var usuario = (userEl && userEl.value ? userEl.value : '').trim();
+ var senha = senhaEl ? senhaEl.value : '';
+ var confirmar = confirmEl ? confirmEl.value : '';
+ var perfilNovo = (perfilEl && perfilEl.value) ? perfilEl.value : 'Professor';
+ var tokenDigitado = tokenEl ? tokenEl.value.trim() : '';
+ 
+ if(!escolaNova || !emailNovo || !usuario || !senha || !confirmar){msg('Preencha todos os campos.', 'error');return false;}
+ if(senha !== confirmar){msg('As senhas não são iguais.', 'error');return false;}
+ if(usuario.length < 3){msg('O usuário deve ter pelo menos 3 caracteres.', 'error');return false;}
+
+ // Carrega a escola antes de validar/cadastrar, evitando misturar usuários de escolas diferentes.
+ var escolaCarregada = await carregarDadosOnline(escolaNova, true);
+ if(!escolaCarregada){
+   msg('Não foi possível conectar ao banco para concluir o cadastro.', 'error');
+   return false;
+ }
+
+ if(perfilNovo === 'Coordenador'){
+   if(!tokenDigitado){
+     msg('Informe o Token de Segurança do Coordenador.', 'error');
+     return false;
+   }
+
+   try{
+     var tokens = await sbRequest('tokens', 'GET',
+       'select=id,token,status,escola,email&token=eq.' + encodeURIComponent(tokenDigitado) + '&limit=1');
+     var tokenValido = tokens && tokens.length ? tokens[0] : null;
+
+     if(!tokenValido){
+       msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
+       return false;
+     }
+     if(String(tokenValido.status || '').toLowerCase() === 'usado'){
+       msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
+       return false;
+     }
+     if(tokenValido.email && String(tokenValido.email).toLowerCase() !== emailNovo.toLowerCase()){
+       msg('Esse token foi liberado para outro e-mail.', 'error');
+       return false;
+     }
+     if(tokenValido.escola && String(tokenValido.escola).toLowerCase() !== escolaNova.toLowerCase()){
+       msg('Esse token foi liberado para outra escola.', 'error');
+       return false;
+     }
+
+     await sbRequest('tokens', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
+       status: 'usado'
+     }, {'Prefer':'return=minimal'});
+   }catch(err){
+     console.error(err);
+     msg('Não foi possível validar o token online. Confira a tabela Tokens no Supabase.', 'error');
+     return false;
+   }
+ }
+
+ var usuarioExiste = usuarios.some(function(u){
+    var uNome = (u && u.usuario) ? String(u.usuario) : '';
+    return uNome.toLowerCase() === usuario.toLowerCase();
+ });
+ if(usuarioExiste){msg('Esse usuário já existe. Escolha outro.', 'error');return false;}
+
+ var novo = {id:Date.now(), nome:usuario, usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
+ usuarios.push(novo);
+ usarEscola(escolaNova);
+ localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+ localStorage.setItem(K, JSON.stringify(db));
+
+ var salvou = await salvarDadosOnline();
+ if(!salvou){
+   usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+   localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+   msg('O cadastro não foi sincronizado com o servidor.', 'error');
+   return false;
+ }
+
+ notify('Cadastro concluído com sucesso!', 'success');
+ abrirLogin(perfilNovo);
+ return false;
+}
+
+function abrirLogin(tipo){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-5">' +
+      '<div class="inline-flex items-center justify-center w-16 h-16 bg-brandDarkBlue text-white rounded-2xl shadow-md mb-3">' +
+        '<i class="fas fa-school text-2xl"></i>' +
+      '</div>' +
+      '<h1 class="text-2xl font-extrabold text-brandDarkBlue dark:text-white">Logística <span class="text-brandGreen">Simples</span></h1>' +
+      '<p class="text-xs text-gray-400 mt-1">Login de ' + tipo + '</p>' +
+    '</div>' +
+    '<form id="loginForm" class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<label class="label">Escola</label>' +
+      '<input id="lescola" class="input" placeholder="Nome da escola" value="' + esc(escolaAtual) + '" required>' +
+      '<label class="label">Usuário</label>' +
+      '<input id="luser" class="input" placeholder="Seu usuário" autocomplete="username" required>' +
+      '<label class="label">Senha</label>' +
+      '<div class="relative">' +
+        '<input id="lsenha" type="password" class="input pr-10" placeholder="Sua senha" autocomplete="current-password" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'lsenha\', \'iconeLoginSenha\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeLoginSenha" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+      '<label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-3">' +
+        '<input id="lembrar" type="checkbox" class="rounded text-brandGreen focus:ring-0"> Lembrar escola' +
+      '</label>' +
+      '<button type="submit" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm hover:opacity-90">Entrar</button>' +
+      '<button type="button" onclick="telaInicial()" class="w-full mt-3 text-gray-400 font-semibold text-xs py-2">← Voltar</button>' +
+      '<div class="mt-4 p-3 rounded-xl bg-green-50 dark:bg-gray-700 text-green-800 dark:text-green-300 text-xs text-center">' +
+        '<b>Demonstração:</b> usuário <b>admin</b> · senha <b>1234</b>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+}
+
+async function login(tipo){
+ var escolaEl = document.getElementById('lescola'), userEl = document.getElementById('luser'), senhaEl = document.getElementById('lsenha'), lembrarEl = document.getElementById('lembrar');
+ var e = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
+ var u = (userEl && userEl.value ? userEl.value : '').trim();
+ var s = senhaEl ? senhaEl.value : '';
+ var lembrar = !!(lembrarEl && lembrarEl.checked);
+
+ if(!e || !u || !s){msg('Preencha escola, usuário e senha.', 'error');return false;}
+
+ var carregou = await carregarDadosOnline(e, true);
+ if(!carregou){
+   msg('Não foi possível consultar o banco online. Tente novamente.', 'error');
+   return false;
+ }
+
+ var x = usuarios.find(function(a){
+    var uName = (a && a.usuario) ? String(a.usuario).trim().toLowerCase() : '';
+    var uPass = (a && a.senha !== undefined && a.senha !== null) ? String(a.senha) : '';
+    return uName === u.toLowerCase() && uPass === s;
+ });
+
+ if(!x){msg('Usuário ou senha incorretos.', 'error');return false;}
+ if(tipo && x.perfil !== tipo){msg('Esse usuário não pertence ao perfil escolhido.', 'error');return false;}
+ if(x.escola && String(x.escola).toLowerCase() !== e.toLowerCase()){msg('Esse usuário não está cadastrado nesta escola.', 'error');return false;}
+
+ escola = e;
+ usarEscola(e);
+ perfil = x.perfil;
+ usuarioAtual = x;
+ alertasLidos = false;
+ sessionStorage.setItem('ls_user', JSON.stringify(x));
+ if(lembrar) localStorage.setItem('ls_escola', e); else localStorage.removeItem('ls_escola');
+ notify('Login realizado com sucesso!', 'success');
+ dashboard();
+ return false;
+}
+
+function logout(){ sessionStorage.removeItem('ls_user'); usuarioAtual = null; notify('Você saiu do sistema.', 'warning'); telaInicial(); }
+
+function usuariosTela(){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  
+  var listaUsuariosHTML = usuarios.map(function(u){
+      var btn = u.usuario === 'admin' 
+        ? '<span class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-500">Admin</span>' 
+        : '<button onclick="removeUsuario(' + u.id + ')" class="text-red-500 font-bold text-xs hover:underline">Excluir</button>';
+      
+      return '<div class="p-4 flex justify-between items-center text-sm">' +
+            '<div>' +
+              '<div class="font-bold text-gray-800 dark:text-gray-100">' + esc(u.nome || u.usuario) + '</div>' +
+              '<div class="text-xs text-gray-400">@' + esc(u.usuario) + ' · <span class="text-brandGreen font-semibold">' + esc(u.perfil) + '</span></div>' +
+            '</div>' +
+            '<div>' + btn + '</div>' +
+          '</div>';
+  }).join('');
+
+  shell(head('Usuários','Controle de acesso') +
+    '<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl border mb-5 shadow-sm">' +
+      '<h2 class="font-bold text-base mb-3">Novo usuário</h2>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        '<div><label class="label">Nome</label><input id="unome" class="input" placeholder="Nome completo"></div>' +
+        '<div><label class="label">Usuário</label><input id="uuser" class="input" placeholder="Nome de usuário"></div>' +
+        '<div><label class="label">Senha</label><input id="usenha" class="input" placeholder="Senha"></div>' +
+        '<div>' +
+          '<label class="label">Perfil</label>' +
+          '<select id="uperfil" class="input">' +
+            '<option>Professor</option>' +
+            '<option>Coordenador</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<button onclick="addUsuario()" class="bg-brandGreen text-white p-3 rounded-xl font-bold text-xs sm:text-sm mt-4 w-full sm:w-auto px-6">' +
+        'Cadastrar Usuário' +
+      '</button>' +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden">' +
+      '<div class="p-4 font-bold border-b text-sm">Usuários Cadastrados</div>' +
+      '<div class="divide-y dark:divide-gray-700">' + listaUsuariosHTML + '</div>' +
+    '</div>'
+  );
+}
+
+async function addUsuario(){
+  var unome = document.getElementById('unome');
+  var uuser = document.getElementById('uuser');
+  var usenha = document.getElementById('usenha');
+  var uperfil = document.getElementById('uperfil');
+  if(!unome.value || !uuser.value || !usenha.value) return msg('Preencha todos os campos.', 'error');
+  
+  var existe = usuarios.some(function(u){ return String(u.usuario || '').toLowerCase() === uuser.value.trim().toLowerCase(); });
+  if(existe) return msg('Usuário já existe.', 'error');
+  
+  var novo = {id:Date.now(), nome:unome.value.trim(), usuario:uuser.value.trim(), senha:usenha.value, perfil:uperfil.value, escola:escola};
+  usuarios.push(novo);
+  save();
+  notify('Usuário cadastrado com sucesso!', 'success');
+  usuariosTela();
+}
+
+function removeUsuario(id){
+  pedirConfirmacao('Deseja realmente remover este usuário?', async function(){
+    usuarios = usuarios.filter(function(u){ return u.id !== id; });
+    save();
+    notify('Usuário excluído com sucesso!', 'success');
+    usuariosTela();
+  });
+}
+
+function verAlertas(){
+  alertasLidos = true;
+  alertas();
+}
+
+function dashboard(){
+  var b = db.materiais.filter(function(x){ return x.qtd <= x.min; }).length;
+  var e = db.emp.filter(function(x){ return x.ativo; }).reduce(function(acc, x){ return acc + (x.qtd || 1); }, 0);
+  var esCoord = perfil === 'Coordenador';
+
+  var avisoBaixo = (esCoord && b && !alertasLidos) ? '<div class="bg-red-50 border-l-4 border-red-500 p-4 mb-5 rounded-r-xl text-red-800 flex justify-between items-center text-xs sm:text-sm">' +
+      '<span><i class="fas fa-bell mr-1.5"></i><b>' + b + '</b> item(s) com estoque baixo.</span>' +
+      '<button onclick="verAlertas()" class="underline font-bold text-xs ml-2">Ver</button>' +
+    '</div>' : '';
+
+  shell(
+    head(escola, 'Painel do Almoxarifado') +
+    avisoBaixo +
+    '<div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">' +
+      stat('boxes','Materiais',db.materiais.length,'brandDarkBlue') +
+      (esCoord ? stat('triangle-exclamation','Estoque baixo',b,'red-500') : '') +
+      stat('laptop','Equipamentos',db.equip.length,'brandDarkBlue') +
+      stat('hand-holding','Emprestados',e,'brandGreen') +
+    '</div>' +
+    '<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4">' +
+      (esCoord ? tile('boxes','Estoque','Materiais e movimentações','materiais') : tile('boxes','Materiais','Consultar itens disponíveis','materiais')) +
+      tile('laptop','Equipamentos','Notebooks e projetores','equipamentos') +
+      tile('arrow-right-arrow-left','Empréstimos','Registrar retirada e devolução','emprestimos') +
+      (esCoord ? tile('clipboard-list','Histórico','Todas as movimentações','historico') : '') +
+      (esCoord ? tile('triangle-exclamation','Alertas','Itens abaixo do estoque mínimo','alertas') : '') +
+      tile('chart-line','Relatórios','Imprimir e listar empréstimos','relatorios') +
+      (esCoord ? tile('users','Usuários','Gerenciar contas de acesso','usuariosTela') : '') +
+    '</div>' +
+    '<div class="mt-8 pt-4 border-t dark:border-gray-800 flex justify-between items-center text-xs text-gray-400">' +
+      '<span>Operador: <strong class="text-gray-600 dark:text-gray-300">' + perfil + '</strong></span>' +
+      '<button onclick="logout()" class="text-red-500 font-bold hover:underline">Sair do Sistema</button>' +
+    '</div>'
+  );
+}
+
+function materiais(){
+  var esCoord = perfil === 'Coordenador';
+  
+  var tabelaDesktop = db.materiais.map(function(p){
+    var status = p.qtd <= p.min ? '<span class="bg-yellow-100 text-yellow-800 px-2.5 py-1 rounded-lg text-xs font-bold">Poucas un.</span>' : '<span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-lg text-xs font-bold">Disponível</span>';
+    var acoes = esCoord ? '<td class="p-4 text-right whitespace-nowrap">' +
+      '<button onclick="entrada(' + p.id + ')" class="text-brandGreen font-bold mr-3 text-xs bg-green-50 px-2.5 py-1.5 rounded-lg">+ Entrada</button>' +
+      '<button onclick="saida(' + p.id + ')" class="text-yellow-600 font-bold mr-3 text-xs bg-yellow-50 px-2.5 py-1.5 rounded-lg">− Saída</button>' +
+      '<button onclick="excluirMaterial(' + p.id + ')" class="text-red-500 font-bold text-xs"><i class="fas fa-trash-alt"></i></button>' +
+    '</td>' : '';
+
+    return '<tr class="text-sm">' +
+      '<td class="p-4 font-semibold">' + esc(p.nome) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(p.cat) + '</td>' +
+      '<td class="p-4 font-bold">' + p.qtd + ' <span class="text-xs font-normal text-gray-400">' + p.un + '</span></td>' +
+      '<td class="p-4">' + status + '</td>' +
+      acoes +
+    '</tr>';
+  }).join('') || '<tr><td colspan="5" class="p-8 text-center text-gray-400">Nenhum material cadastrado.</td></tr>';
+
+  var cardsMobile = db.materiais.map(function(p){
+    var badge = p.qtd <= p.min ? '<span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-[10px] font-bold">Baixo</span>' : '<span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-bold">OK</span>';
+    var acoes = esCoord ? '<div class="flex gap-2 pt-2 border-t dark:border-gray-700">' +
+        '<button onclick="entrada(' + p.id + ')" class="flex-1 bg-green-50 text-brandGreen font-bold py-1.5 rounded-lg text-xs text-center">+ Entrada</button>' +
+        '<button onclick="saida(' + p.id + ')" class="flex-1 bg-yellow-50 text-yellow-700 font-bold py-1.5 rounded-lg text-xs text-center">− Saída</button>' +
+        '<button onclick="excluirMaterial(' + p.id + ')" class="bg-red-50 text-red-500 p-2 rounded-lg text-xs"><i class="fas fa-trash-alt"></i></button>' +
+      '</div>' : '';
+
+    return '<div class="p-4 text-sm space-y-2">' +
+      '<div class="flex justify-between items-start">' +
+        '<div>' +
+          '<div class="font-bold text-base text-gray-900 dark:text-white">' + esc(p.nome) + '</div>' +
+          '<div class="text-xs text-gray-400">' + esc(p.cat) + '</div>' +
+        '</div>' +
+        '<div>' + badge + '</div>' +
+      '</div>' +
+      '<div class="text-xs text-gray-600 dark:text-gray-300">' +
+        'Quantidade: <strong class="text-sm">' + p.qtd + '</strong> ' + p.un +
+      '</div>' +
+      acoes +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum material cadastrado.</div>';
+
+  shell(
+    head(esCoord ? 'Estoque' : 'Materiais Disponíveis', esCoord ? 'Gerenciamento de estoque' : 'Consulta de disponibilidade') +
+    (esCoord ? '<button onclick="formMat()" class="bg-brandGreen text-white p-3 px-4 rounded-xl font-bold text-xs sm:text-sm mb-4 w-full sm:w-auto shadow-sm">+ Novo material</button>' : '') +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="hidden sm:block overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead>' +
+            '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+              '<th class="p-4">Material</th>' +
+              '<th class="p-4">Categoria</th>' +
+              '<th class="p-4">Quantidade</th>' +
+              '<th class="p-4">Status</th>' +
+              (esCoord ? '<th class="p-4 text-right">Ações</th>' : '') +
+            '</tr>' +
+          '</thead>' +
+          '<tbody class="divide-y dark:divide-gray-700">' + tabelaDesktop + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>'
+  );
+}
+
+function excluirMaterial(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  
+  pedirConfirmacao('Tem certeza que deseja excluir o item "' + p.nome + '" do estoque?', function(){
+    db.materiais = db.materiais.filter(function(x){ return x.id !== id; });
+    hist('Exclusão', p.nome, 'Removido', usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Item excluído com sucesso!', 'success');
+    materiais();
+  });
+}
+
+function formMat(){
+  if(perfil!=='Coordenador') return; 
+  shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+    formTitle('Novo material') +
+    '<label class="label">Nome</label><input id="mn" class="input" placeholder="Ex.: Papel A4">' +
+    '<label class="label">Categoria</label><select id="mc" class="input"><option>Material escolar</option><option>Administrativo</option><option>Limpeza</option><option>Manutenção</option><option>Outros</option></select>' +
+    '<label class="label">Quantidade</label><input id="mq" type="number" min="0" class="input">' +
+    '<label class="label">Estoque mínimo</label><input id="mm" type="number" min="0" class="input">' +
+    '<label class="label">Unidade</label><select id="mu" class="input"><option value="unidade">unidade</option><option value="pacote">pacote</option></select>' +
+    '<button onclick="saveMat()" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm">Salvar material</button>' +
+    '<button onclick="materiais()" class="w-full mt-2 text-gray-400 text-xs py-2">Cancelar</button>' +
+  '</div>');
+}
+
+function formTitle(t){ return '<h2 class="text-xl sm:text-2xl font-bold text-brandDarkBlue dark:text-white mb-4">' + t + '</h2>'; }
+
+function saveMat(){
+  var mn = document.getElementById('mn'), mc = document.getElementById('mc'), mq = document.getElementById('mq'), mm = document.getElementById('mm'), mu = document.getElementById('mu');
+  if(perfil!=='Coordenador') return; 
+  if(!mn.value || Number(mq.value)<0 || Number(mm.value)<0) return msg('Preencha os dados.', 'error');
+  
+  var qtd = Number(mq.value);
+  var min = Number(mm.value);
+  
+  db.materiais.push({id:Date.now(), nome:mn.value.trim(), cat:mc.value, qtd:qtd, min:min, un:mu.value});
+  hist('Cadastro', mn.value, qtd, 'Sistema');
+  save();
+
+  if(qtd <= min){
+    alertasLidos = false;
+    notify('Atenção: Item cadastrado com estoque baixo!', 'warning');
+  } else {
+    notify('Material cadastrado com sucesso!', 'success');
+  }
+
+  materiais();
+}
+
+function entrada(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      '<h2 class="text-xl font-bold text-brandGreen mb-1 flex items-center gap-2"><i class="fas fa-plus-circle"></i>Entrada de Estoque</h2>' +
+      '<p class="text-xs text-gray-500 mb-4">Item: <strong class="text-gray-800 dark:text-white">' + esc(p.nome) + '</strong> (Atual: ' + p.qtd + ' ' + p.un + ')</p>' +
+      '<label class="label">Quantidade a adicionar</label>' +
+      '<input id="qntEntrada" type="number" min="1" class="input mb-4" placeholder="Ex.: 10" autofocus>' +
+      '<button onclick="confirmarEntrada(' + p.id + ')" class="w-full bg-brandGreen text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Entrada</button>' +
+      '<button onclick="materiais()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function confirmarEntrada(id){
+  if(perfil !== 'Coordenador') return;
+  var qInput = document.getElementById('qntEntrada');
+  var q = Number(qInput ? qInput.value : 0);
+  if(!q || q <= 0){
+    msg('Por favor, informe uma quantidade válida.', 'error');
+    return;
+  }
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if(p){
+    p.qtd += q;
+    hist('Entrada', p.nome, '+' + q, usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Entrada de estoque realizada!', 'success');
+    materiais();
+  }
+}
+
+function saida(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      '<h2 class="text-xl font-bold text-red-500 mb-1 flex items-center gap-2"><i class="fas fa-minus-circle"></i>Saída de Estoque</h2>' +
+      '<p class="text-xs text-gray-500 mb-4">Item: <strong class="text-gray-800 dark:text-white">' + esc(p.nome) + '</strong> (Atual: ' + p.qtd + ' ' + p.un + ')</p>' +
+      '<label class="label">Quantidade a remover</label>' +
+      '<input id="qntSaida" type="number" min="1" max="' + p.qtd + '" class="input mb-4" placeholder="Ex.: 5" autofocus>' +
+      '<button onclick="confirmarSaida(' + p.id + ')" class="w-full bg-red-500 text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Saída</button>' +
+      '<button onclick="materiais()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function confirmarSaida(id){
+  if(perfil !== 'Coordenador') return;
+  var qInput = document.getElementById('qntSaida');
+  var q = Number(qInput ? qInput.value : 0);
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if(!q || q <= 0){
+    msg('Por favor, informe uma quantidade válida.', 'error');
+    return;
+  }
+  if(p){
+    if(q > p.qtd){
+      msg('Estoque insuficiente!', 'error');
+      return;
+    }
+    p.qtd -= q;
+    hist('Saída', p.nome, '-' + q, usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+
+    if(p.qtd <= p.min){
+      alertasLidos = false;
+      notify('Saída registrada! Item atingiu estoque mínimo.', 'warning');
+    } else {
+      notify('Saída registrada com sucesso!', 'success');
+    }
+
+    materiais();
+  }
+}
+
+function equipamentos(){
+  var esCoord = perfil === 'Coordenador';
+  
+  var tabelaDesktop = db.equip.map(function(x){
+    var acoes = esCoord ? '<td class="p-4 text-right">' +
+        '<button onclick="excluirEquip(' + x.id + ')" class="text-red-500 font-bold text-xs hover:underline"><i class="fas fa-trash-alt"></i></button>' +
+      '</td>' : '';
+
+    return '<tr>' +
+      '<td class="p-4 font-semibold">' + esc(x.nome) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(x.modelo) + '</td>' +
+      '<td class="p-4 text-xs font-semibold text-gray-600 dark:text-gray-300">' +
+        '<span class="inline-block px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600">' +
+          '<i class="fas fa-palette mr-1 text-brandGreen"></i>' + esc(x.cor || '-') +
+        '</span>' +
+      '</td>' +
+      '<td class="p-4 text-center font-bold">' + x.total + '</td>' +
+      '<td class="p-4 text-center">' +
+        '<span class="bg-green-100 text-green-700 px-3 py-1 rounded-lg text-xs font-bold">' + x.disp + '</span>' +
+      '</td>' +
+      '<td class="p-4 text-center">' +
+        '<span class="' + (x.emp ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-700 text-gray-500') + ' px-3 py-1 rounded-lg text-xs font-bold">' + x.emp + '</span>' +
+      '</td>' +
+      acoes +
+    '</tr>';
+  }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum equipamento cadastrado.</td></tr>';
+
+  var cardsMobile = db.equip.map(function(x){
+    var btnDel = esCoord ? '<button onclick="excluirEquip(' + x.id + ')" class="text-red-500 text-xs p-1"><i class="fas fa-trash-alt"></i></button>' : '';
+
+    return '<div class="p-4 space-y-2">' +
+      '<div class="flex justify-between items-start">' +
+        '<div>' +
+          '<div class="font-bold text-base text-gray-900 dark:text-white">' + esc(x.nome) + '</div>' +
+          '<div class="text-xs text-gray-400">Modelo: ' + esc(x.modelo) + ' · Cor: <strong class="text-gray-700 dark:text-gray-200">' + esc(x.cor || '-') + '</strong></div>' +
+        '</div>' +
+        btnDel +
+      '</div>' +
+      '<div class="grid grid-cols-3 gap-2 pt-1 text-center text-xs">' +
+        '<div class="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">' +
+          '<div class="text-gray-400 text-[10px]">TOTAL</div>' +
+          '<div class="font-bold text-sm">' + x.total + '</div>' +
+        '</div>' +
+        '<div class="bg-green-50 dark:bg-gray-700 p-2 rounded-lg text-brandGreen">' +
+          '<div class="text-[10px]">DISP.</div>' +
+          '<div class="font-bold text-sm">' + x.disp + '</div>' +
+        '</div>' +
+        '<div class="bg-yellow-50 dark:bg-gray-700 p-2 rounded-lg text-yellow-700">' +
+          '<div class="text-[10px]">EMPR.</div>' +
+          '<div class="font-bold text-sm">' + x.emp + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum equipamento cadastrado.</div>';
+
+  shell(
+    head('Equipamentos','Consulta e cadastro de equipamentos por cor') +
+    (esCoord ? '<button onclick="formEquip()" class="bg-brandGreen text-white p-3 px-4 rounded-xl font-bold text-xs sm:text-sm mb-4 w-full sm:w-auto shadow-sm">+ Novo equipamento</button>' : '') +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="hidden sm:block overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead>' +
+            '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+              '<th class="p-4">Item / Equipamento</th>' +
+              '<th class="p-4">Marca / Modelo</th>' +
+              '<th class="p-4">Cor</th>' +
+              '<th class="p-4 text-center">Total</th>' +
+              '<th class="p-4 text-center">Disponível</th>' +
+              '<th class="p-4 text-center">Emprestado</th>' +
+              (esCoord ? '<th class="p-4 text-right">Ação</th>' : '') +
+            '</tr>' +
+          '</thead>' +
+          '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>'
+  );
+}
+
+function formEquip(){
+  if(perfil!=='Coordenador') return; 
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      formTitle('Novo Equipamento') +
+      '<label class="label">Nome do Equipamento</label>' +
+      '<input id="en" class="input" placeholder="Ex.: Notebook, Tablet, Projetor">' +
+      '<label class="label">Marca / Modelo</label>' +
+      '<input id="em" class="input" placeholder="Ex.: Lenovo IdeaPad 3, Samsung Tab A">' +
+      '<label class="label">Cor de Identificação</label>' +
+      '<input id="ec" class="input" placeholder="Ex.: Azul, Amarelo, Vermelho, Preto">' +
+      '<label class="label">Quantidade Total</label>' +
+      '<input id="eq" type="number" min="1" value="1" class="input">' +
+      '<button onclick="saveEquip()" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm">Salvar Equipamento</button>' +
+      '<button onclick="equipamentos()" class="w-full mt-2 text-gray-400 text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function saveEquip(){
+  var en = document.getElementById('en'), em = document.getElementById('em'), ec = document.getElementById('ec'), eq = document.getElementById('eq');
+  if(perfil!=='Coordenador') return;
+  var nome = en.value.trim();
+  var modelo = em.value.trim();
+  var cor = ec.value.trim();
+  var qtd = Number(eq.value);
+
+  if(!nome || !modelo || !cor || !qtd || qtd <= 0){
+    return msg('Preencha todos os campos.', 'error');
+  }
+
+  db.equip.push({
+    id: Date.now(),
+    nome: nome,
+    modelo: modelo,
+    cor: cor,
+    total: qtd,
+    disp: qtd,
+    emp: 0
+  });
+
+  hist('Cadastro', nome, qtd + ' un.', 'Modelo: ' + modelo + ' · Cor: ' + cor);
+  save();
+  notify('Equipamento salvo com sucesso!', 'success');
+  equipamentos();
+}
+
+function excluirEquip(id){
+  if(perfil !== 'Coordenador') return;
+  var e = db.equip.find(function(x){ return x.id === id; });
+  if (!e) return;
+  
+  pedirConfirmacao('Tem certeza que deseja excluir o equipamento "' + e.nome + '"?', function(){
+    db.equip = db.equip.filter(function(x){ return x.id !== id; });
+    hist('Exclusão', e.nome, 'Removido', usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Equipamento excluído com sucesso!', 'success');
+    equipamentos();
+  });
+}
+
+function emprestimos(){
+  var disponiveis = db.materiais.filter(function(p){ return Number(p.qtd || 0) > 0; });
+  var ativos = db.emp.filter(function(x){ return x.ativo; });
+
+  var optionsDisp = disponiveis.length
+    ? disponiveis.map(function(p){ return '<option value="' + p.id + '">' + esc(p.nome) + ' (' + p.qtd + ' disponíveis)</option>'; }).join('')
+    : '<option value="">Nenhum item disponível</option>';
+
+  var nomeUsuarioVal = (perfil === 'Professor' && usuarioAtual && usuarioAtual.nome) ? esc(usuarioAtual.nome) : '';
+
+  var tabelaDesktop = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+
+    return '<tr>' +
+      '<td class="p-4 font-semibold">' + esc(nome) + '</td>' +
+      '<td class="p-4 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
+      '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) + '</td>' +
+      '<td class="p-4 text-xs text-gray-400">' + l.data + '</td>' +
+      '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="6" class="p-8 text-center text-gray-400">Nenhum item emprestado.</td></tr>';
+
+  var cardsMobile = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+
+    return '<div class="p-4 space-y-2 text-xs">' +
+      '<div class="flex justify-between items-start">' +
+        '<div>' +
+          '<div class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</div>' +
+          '<div class="text-brandGreen font-semibold mt-0.5">Por: ' + esc(l.pessoa) + '</div>' +
+        '</div>' +
+        '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold text-xs">' + (l.qtd || 1) + ' un.</span>' +
+      '</div>' +
+      '<div class="text-gray-500 flex justify-between">' +
+        '<span>Destino: ' + esc(l.destino) + '</span>' +
+        '<span class="text-[10px] text-gray-400">' + l.data + '</span>' +
+      '</div>' +
+      '<button onclick="devolver(' + l.id + ')" class="w-full bg-brandGreen text-white font-bold py-2 rounded-xl text-center mt-2">' +
+        'Devolver Material' +
+      '</button>' +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum item emprestado.</div>';
+
+  shell(
+    head('Empréstimos','Retiradas e devoluções') +
+    '<div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-sm border mb-5">' +
+      '<h2 class="font-bold text-base mb-3">Registrar retirada</h2>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        '<div>' +
+          '<label class="label">Item</label>' +
+          '<select id="le" class="input">' + optionsDisp + '</select>' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Quantidade a retirar</label>' +
+          '<input id="lq" type="number" min="1" class="input" placeholder="Ex.: 5" value="1">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Quem retirou?</label>' +
+          '<input id="lp" class="input" placeholder="Ex.: Prof. Carlos" value="' + nomeUsuarioVal + '">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Sala / setor</label>' +
+          '<input id="ld" class="input" placeholder="Ex.: Sala 5">' +
+        '</div>' +
+      '</div>' +
+      '<button onclick="addEmp()" class="bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-4 w-full sm:w-auto px-6 text-xs sm:text-sm">' +
+        'Confirmar Retirada' +
+      '</button>' +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="p-4 border-b font-bold text-sm">Itens Emprestados Atualmente</div>' +
+      '<div class="hidden sm:block overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead>' +
+            '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+              '<th class="p-4">Item</th>' +
+              '<th class="p-4">Qtd.</th>' +
+              '<th class="p-4">Retirado por</th>' +
+              '<th class="p-4">Destino</th>' +
+              '<th class="p-4">Data</th>' +
+              '<th class="p-4 text-right">Ação</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>'
+  );
+}
+
+function addEmp(){
+  var le = document.getElementById('le'), lq = document.getElementById('lq'), lp = document.getElementById('lp'), ld = document.getElementById('ld');
+  var p = db.materiais.find(function(x){ return x.id === Number(le.value); });
+  var q = Number(lq.value);
+  var pessoa = lp.value.trim();
+  var destino = ld.value.trim();
+
+  if(!p) return msg('Selecione um item.', 'error');
+  if(!q || q <= 0) return msg('Informe uma quantidade válida.', 'error');
+  if(q > Number(p.qtd || 0))
+    return msg('Quantidade indisponível! Disponíveis: ' + Number(p.qtd || 0), 'error');
+  if(!pessoa || !destino) return msg('Preencha quem retirou e a sala/setor.', 'error');
+
+  var data = new Date().toLocaleString('pt-BR');
+
+  p.qtd -= q;
+
+  db.emp.unshift({
+    id: Date.now(),
+    materialId: p.id,
+    qtd: q,
+    pessoa: pessoa,
+    destino: destino,
+    data: data,
+    ativo: true
+  });
+
+  hist('Empréstimo', p.nome, q + ' un.', pessoa + ' · ' + destino);
+  save();
+
+  if(p.qtd <= p.min){
+    alertasLidos = false;
+    notify('Retirada registrada! Item atingiu estoque mínimo.', 'warning');
+  } else {
+    notify('Empréstimo registrado com sucesso!', 'success');
+  }
+
+  emprestimos();
+}
+
+function devolver(id){
+  var l = db.emp.find(function(x){ return x.id === id; });
+  if(!l) return;
+
+  var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+
+  if(p){
+    p.qtd += Number(l.qtd || 0);
+  }
+
+  l.ativo = false;
+
+  hist('Devolução', p ? p.nome : 'Item', (l.qtd || 1) + ' un.', l.pessoa);
+  save();
+  notify('Devolução realizada com sucesso!', 'success');
+  emprestimos();
+}
+
+function hist(tipo,item,qtd,det){ db.hist.unshift({data:new Date().toLocaleString('pt-BR'), tipo:tipo, item:item, qtd:qtd, det:det}); }
+
+function historico(){
+  if(perfil !== 'Coordenador'){
+    return msg('Acesso negado. Apenas coordenadores podem visualizar o histórico.', 'error');
+  }
+
+  var tabelaDesktop = db.hist.map(function(h){
+    return '<tr>' +
+      '<td class="p-4 text-xs text-gray-400 whitespace-nowrap">' + h.data + '</td>' +
+      '<td class="p-4"><span class="bg-blue-50 text-brandLightBlue px-2.5 py-1 rounded-lg text-xs font-bold">' + esc(h.tipo) + '</span></td>' +
+      '<td class="p-4 font-semibold">' + esc(h.item) + '</td>' +
+      '<td class="p-4 font-bold">' + esc(h.qtd) + '</td>' +
+      '<td class="p-4 text-gray-500">' + esc(h.det) + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="5" class="p-8 text-center text-gray-400">Nenhuma movimentação.</td></tr>';
+
+  var cardsMobile = db.hist.map(function(h){
+    return '<div class="p-4 space-y-1.5 text-xs">' +
+      '<div class="flex justify-between items-center">' +
+        '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold text-[10px]">' + esc(h.tipo) + '</span>' +
+        '<span class="text-[10px] text-gray-400">' + h.data + '</span>' +
+      '</div>' +
+      '<div class="font-bold text-sm text-gray-900 dark:text-white">' + esc(h.item) + ' (' + esc(h.qtd) + ')</div>' +
+      '<div class="text-gray-500">' + esc(h.det) + '</div>' +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhuma movimentação.</div>';
+
+  shell(
+    head('Histórico','Movimentações gerais') +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="hidden sm:block overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead>' +
+            '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+              '<th class="p-4">Data</th>' +
+              '<th class="p-4">Tipo</th>' +
+              '<th class="p-4">Item</th>' +
+              '<th class="p-4">Qtd.</th>' +
+              '<th class="p-4">Detalhes</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>'
+  );
+}
+
+function alertas(){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  
+  alertasLidos = true;
+
+  var a = db.materiais.filter(function(p){ return p.qtd <= p.min; });
+  
+  var lista = a.length ? a.map(function(p){
+    return '<div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl mb-3 text-red-800 text-xs sm:text-sm">' +
+      '<b>' + esc(p.nome) + '</b> está com ' + p.qtd + ' ' + p.un + '. Mínimo: ' + p.min + ' ' + p.un + '.' +
+    '</div>';
+  }).join('') : '<div class="text-center p-8 text-green-600 font-semibold text-sm">✓ Nenhum item abaixo do estoque mínimo.</div>';
+
+  shell(
+    head('Alertas','Estoque crítico') +
+    '<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border">' + lista + '</div>'
+  );
+}
+
+function imprimirRelatorio(){
+  var ativos = db.emp.filter(function(x){ return x.ativo; });
+  var printArea = document.getElementById('print-area');
+  var dataHoje = new Date().toLocaleString('pt-BR');
+  
+  var tabelaEmp = ativos.length ? ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+
+    return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(nome) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + (l.qtd || 1) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(l.pessoa) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(l.destino) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + l.data + '</td>' +
+    '</tr>';
+  }).join('') : '<tr><td colspan="5" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Nenhum material em posse de terceiros no momento.</td></tr>';
+
+  var tabelaAlerta = db.materiais.filter(function(p){ return p.qtd <= p.min; }).map(function(p){
+    return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(p.nome) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(p.cat) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; color: #dc2626; font-weight: bold;">' + p.qtd + ' ' + p.un + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + p.min + ' ' + p.un + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="4" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Todos os itens estão com saldo dentro do esperado.</td></tr>';
+
+  var secaoCoord = perfil === 'Coordenador' ? 
+    '<h2 style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #0F2C59;">Resumo do Estoque em Alerta</h2>' +
+    '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">' +
+      '<thead>' +
+        '<tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Material</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Categoria</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Saldo Atual</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Mínimo</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + tabelaAlerta + '</tbody>' +
+    '</table>' : '';
+
+  if (printArea) {
+    printArea.innerHTML = 
+      '<div style="font-family: sans-serif; color: #111;">' +
+        '<div style="border-bottom: 2px solid #0F2C59; padding-bottom: 12px; margin-bottom: 20px;">' +
+          '<h1 style="font-size: 20px; font-weight: bold; color: #0F2C59; margin: 0;">Relatório do Almoxarifado - ' + esc(escola) + '</h1>' +
+          '<p style="font-size: 11px; color: #666; margin: 4px 0 0 0;">Emitido em: ' + dataHoje + ' | Operador: ' + esc(perfil) + '</p>' +
+        '</div>' +
+        '<h2 style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #2E7D32;">Materiais Atualmente Emprestados</h2>' +
+        '<table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 12px;">' +
+          '<thead>' +
+            '<tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Item / Material</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Qtd.</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Retirado por</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Destino / Sala</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Data / Hora</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody>' + tabelaEmp + '</tbody>' +
+        '</table>' +
+        secaoCoord +
+      '</div>';
+  }
+
+  window.print();
+}
+
+function relatorios(){
+  var total = db.materiais.reduce(function(a,p){ return a + p.qtd; }, 0);
+  var e = db.emp.filter(function(x){ return x.ativo; }).reduce(function(acc, x){ return acc + (x.qtd || 1); }, 0);
+  var ativos = db.emp.filter(function(x){ return x.ativo; });
+
+  var tabelaDesktop = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((eg && eg.nome) ? eg.nome : 'Item');
+
+    return '<tr>' +
+      '<td class="p-3 font-semibold">' + esc(nome) + '</td>' +
+      '<td class="p-3 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
+      '<td class="p-3 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
+      '<td class="p-3 text-gray-500">' + esc(l.destino) + '</td>' +
+      '<td class="p-3 text-xs text-gray-400">' + l.data + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="5" class="p-6 text-center text-gray-400">Nenhum material emprestado no momento.</td></tr>';
+
+  var cardsMobile = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((eg && eg.nome) ? eg.nome : 'Item');
+
+    return '<div class="p-3.5 space-y-1 text-xs">' +
+      '<div class="flex justify-between items-start">' +
+        '<span class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</span>' +
+        '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold">' + (l.qtd || 1) + ' un.</span>' +
+      '</div>' +
+      '<div class="text-brandGreen font-medium">Quem retirou: <strong>' + esc(l.pessoa) + '</strong></div>' +
+      '<div class="text-gray-400 flex justify-between">' +
+        '<span>Destino: ' + esc(l.destino) + '</span>' +
+        '<span class="text-[10px]">' + l.data + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum material emprestado no momento.</div>';
+
+  shell(
+    head('Relatorios','Resumo do almoxarifado') +
+    '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">' +
+      stat('boxes','Tipos de materiais',db.materiais.length,'brandDarkBlue') +
+      stat('cubes','Itens físicos',total,'brandGreen') +
+      stat('hand-holding','Emprestados',e,'red-500') +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border shadow-sm mb-5">' +
+      '<div class="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4">' +
+        '<div>' +
+          '<h2 class="font-bold text-base sm:text-lg">Materiais Emprestados</h2>' +
+          '<p class="text-xs text-gray-400">Esta lista será enviada para impressão</p>' +
+        '</div>' +
+        '<button onclick="imprimirRelatorio()" class="bg-brandDarkBlue text-white p-3 px-5 rounded-xl font-bold text-xs sm:text-sm shadow hover:opacity-90 flex items-center justify-center gap-2">' +
+          '<i class="fas fa-print"></i> <span>Imprimir Relatório</span>' +
+        '</button>' +
+      '</div>' +
+      '<div class="rounded-xl border overflow-hidden">' +
+        '<div class="hidden sm:block overflow-x-auto">' +
+          '<table class="w-full text-left">' +
+            '<thead>' +
+              '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+                '<th class="p-3">Material / Item</th>' +
+                '<th class="p-3">Qtd.</th>' +
+                '<th class="p-3">Quem Retirou</th>' +
+                '<th class="p-3">Destino</th>' +
+                '<th class="p-3">Data</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function bindForms(){
+ var lf = document.getElementById('loginForm');
+ if(lf){
+   lf.onsubmit = function(ev){ ev.preventDefault(); login(this.getAttribute('data-tipo')); return false; };
+ }
+ var cf = document.getElementById('cadastroForm');
+ if(cf){
+   cf.onsubmit = function(ev){ ev.preventDefault(); criarCadastro(); return false; };
+ }
+}
+
+var _abrirLogin = abrirLogin;
+abrirLogin = function(tipo){
+ _abrirLogin(tipo);
+ var f = document.getElementById('loginForm');
+ if(f) f.setAttribute('data-tipo', tipo);
+ bindForms();
+};
+
+var _cadastro = cadastro;
+cadastro = function(){
+ _cadastro();
+ bindForms();
+};
+
+// Inicialização: tenta carregar a escola/usuário do Supabase antes de abrir o painel.
+inicializarApp();
+
+</script>
+</body>
+</html>
