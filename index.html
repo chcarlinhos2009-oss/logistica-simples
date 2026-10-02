@@ -617,7 +617,7 @@ async function criarCadastro(){
    }
 
    try{
-     var tokens = await sbRequest('tokens', 'GET',
+     var tokens = await sbRequest('token', 'GET',
        'select=id,token,status,escola,email&token=eq.' + encodeURIComponent(tokenDigitado) + '&limit=1');
      var tokenValido = tokens && tokens.length ? tokens[0] : null;
 
@@ -638,12 +638,12 @@ async function criarCadastro(){
        return false;
      }
 
-     await sbRequest('tokens', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
+     await sbRequest('token', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
        status: 'usado'
      }, {'Prefer':'return=minimal'});
    }catch(err){
      console.error(err);
-     msg('Não foi possível validar o token online. Confira a tabela Tokens no Supabase.', 'error');
+     msg('Token inválido. Verifique o código informado e tente novamente.', 'error');
      return false;
    }
  }
