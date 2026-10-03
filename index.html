@@ -90,55 +90,44 @@
     <script>
 
 var app = document.getElementById("app");
-
-/* =========================================================
-   SUPABASE — armazenamento online do Logística Simples
-   A chave publishable/anon é apropriada para uso no navegador.
-   O banco deve permanecer protegido por RLS.
-   ========================================================= */
-var SUPABASE_URL = 'https://okrgeuuqbadsexsumjbz.supabase.co';
-var SUPABASE_KEY = 'sb_publishable_2pow_sr87FSuqs7kZMYnBg_RbE5Sk7C';
-var SUPABASE_REST = SUPABASE_URL + '/rest/v1';
 var K = 'ls_pro';
 var AUTH_KEY = 'ls_auth';
-var onlineReady = false;
-var onlineSaving = false;
 
 // CHAVE DE SEGURANÇA PARA CADASTRAR COORDENADOR
 var COORDINATOR_KEY = null; // tokens válidos são gerados pelo Painel Dev
 
-function sbHeaders(extra){
-  var h = {
-    'apikey': SUPABASE_KEY,
-    'Authorization': 'Bearer ' + SUPABASE_KEY,
-    'Content-Type': 'application/json'
-  };
-  if(extra) Object.keys(extra).forEach(function(k){ h[k] = extra[k]; });
-  return h;
+var usuariosSalvos = localStorage.getItem(AUTH_KEY);
+var usuarios = usuariosSalvos ? JSON.parse(usuariosSalvos) : null;
+if(!usuarios) {
+    usuarios = [{id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'}];
 }
 
-function sbUrl(table, query){
-  return SUPABASE_REST + '/' + table + (query ? '?' + query : '');
-}
+usuarios = usuarios.map(function(u){
+    var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
+    return Object.assign({}, u, {perfil: p});
+}).filter(function(u){
+    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
+});
 
-async function sbRequest(table, method, query, body, extraHeaders){
-  var resp = await fetch(sbUrl(table, query), {
-    method: method || 'GET',
-    headers: sbHeaders(extraHeaders),
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  var text = await resp.text();
-  var data = null;
-  if(text){ try { data = JSON.parse(text); } catch(e) { data = text; } }
-  if(!resp.ok){
-    var detalhe = data && data.message ? data.message : (data && data.error ? data.error : text);
-    throw new Error('Supabase ' + resp.status + ': ' + (detalhe || 'erro na API'));
-  }
-  return data;
+var temAdmin = false;
+for(var i=0; i<usuarios.length; i++) {
+    if(usuarios[i].usuario === 'admin') temAdmin = true;
 }
+if(!temAdmin) {
+    usuarios.unshift({id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'});
+}
+localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
 
-function dadosIniciais(){
-  return {
+var userSessao = sessionStorage.getItem('ls_user');
+var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
+var escolaAtual = localStorage.getItem('ls_escola') || '';
+
+var alertasLidos = false;
+
+var dbSalvo = localStorage.getItem(K);
+var db = dbSalvo ? JSON.parse(dbSalvo) : null;
+if(!db) {
+  db = {
     materiais:[
       {id:1,nome:'Papel A4',cat:'Administrativo',qtd:18,min:20,un:'pacote'},
       {id:2,nome:'Caneta azul',cat:'Material escolar',qtd:120,min:30,un:'unidade'},
@@ -154,168 +143,25 @@ function dadosIniciais(){
   };
 }
 
-function normalizarUsuarios(lista){
-  lista = Array.isArray(lista) ? lista : [];
-  lista = lista.map(function(u){
-    var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
-    return Object.assign({}, u, {perfil: p});
-  }).filter(function(u){
-    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
+if(db.equip && Array.isArray(db.equip)){
+  db.equip = db.equip.map(function(e){
+    return {
+      id: e.id || Date.now(),
+      nome: e.nome || 'Equipamento',
+      modelo: e.modelo || '-',
+      cor: e.cor || e.pat || '-',
+      total: typeof e.total === 'number' ? e.total : 1,
+      disp: typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),
+      emp: typeof e.emp === 'number' ? e.emp : 0
+    };
   });
-
-  var temAdmin = lista.some(function(u){ return String(u.usuario || '').toLowerCase() === 'admin'; });
-  if(!temAdmin){
-    lista.unshift({id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'});
-  }
-  return lista;
-}
-
-function normalizarDb(obj){
-  var base = dadosIniciais();
-  var x = obj && typeof obj === 'object' ? obj : {};
-  db = {
-    materiais: Array.isArray(x.materiais) ? x.materiais : base.materiais,
-    equip: Array.isArray(x.equip) ? x.equip : base.equip,
-    emp: Array.isArray(x.emp) ? x.emp : [],
-    hist: Array.isArray(x.hist) ? x.hist : []
-  };
-
-  if(db.equip && Array.isArray(db.equip)){
-    db.equip = db.equip.map(function(e){
-      return {
-        id: e.id || Date.now(),
-        nome: e.nome || 'Equipamento',
-        modelo: e.modelo || '-',
-        cor: e.cor || e.pat || '-',
-        total: typeof e.total === 'number' ? e.total : 1,
-        disp: typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),
-        emp: typeof e.emp === 'number' ? e.emp : 0
-      };
-    });
-  }
-}
-
-var usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
-var userSessao = sessionStorage.getItem('ls_user');
-var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
-var escolaAtual = localStorage.getItem('ls_escola') || '';
-var alertasLidos = false;
-var db = null;
-
-normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
-localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-
-function storageKey(escolaNome){
-  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]+/gi,'_').replace(/^_|_$/g,'');
-}
-
-function usarEscola(escolaNome){
-  escolaNome = String(escolaNome || '').trim();
-  if(!escolaNome) return;
-  escolaAtual = escolaNome;
-  escola = escolaNome;
-  K = storageKey(escolaNome);
-  localStorage.setItem('ls_escola', escolaNome);
-}
-
-async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
-  escolaNome = String(escolaNome || '').trim();
-  if(!escolaNome) return false;
-
-  var keyAnterior = K;
-  usarEscola(escolaNome);
-
-  try{
-    var rows = await sbRequest('ls_app_data', 'GET', 'select=*&escola=eq.' + encodeURIComponent(escolaNome) + '&limit=1');
-    var row = rows && rows.length ? rows[0] : null;
-
-    if(row){
-      usuarios = normalizarUsuarios(row.usuarios);
-      normalizarDb(row.db);
-      localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-      localStorage.setItem(K, JSON.stringify(db));
-      onlineReady = true;
-      return true;
-    }
-
-    // Primeira utilização desta escola: aproveita o cache local dessa escola,
-    // ou cria o ambiente inicial do protótipo.
-    var cache = JSON.parse(localStorage.getItem(K) || 'null');
-    normalizarDb(cache || dadosIniciais());
-    usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
-
-    if(criarSeNaoExistir !== false){
-      await sbRequest('ls_app_data', 'POST', '', {
-        escola: escolaNome,
-        usuarios: usuarios,
-        db: db
-      }, {'Prefer':'return=minimal'});
-    }
-
-    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-    localStorage.setItem(K, JSON.stringify(db));
-    onlineReady = true;
-    return true;
-  }catch(err){
-    onlineReady = false;
-    // Mantém o protótipo funcionando com o cache local se o banco estiver indisponível.
-    var cacheLocal = JSON.parse(localStorage.getItem(K) || 'null');
-    if(cacheLocal) normalizarDb(cacheLocal);
-    if(keyAnterior && keyAnterior !== K){
-      // nada: o cache da escola já foi tentado acima
-    }
-    console.error('Erro ao carregar Supabase:', err);
-    notify('Não foi possível sincronizar com o banco online. O modo local foi mantido.', 'warning');
-    return false;
-  }
-}
-
-async function salvarDadosOnline(){
-  if(!onlineReady || !escola) return false;
-  if(onlineSaving) return false;
-  onlineSaving = true;
-  try{
-    await sbRequest('ls_app_data', 'PATCH', 'escola=eq.' + encodeURIComponent(escola), {
-      usuarios: usuarios,
-      db: db,
-      updated_at: new Date().toISOString()
-    }, {'Prefer':'return=minimal'});
-    return true;
-  }catch(err){
-    console.error('Erro ao salvar no Supabase:', err);
-    notify('Alteração salva neste dispositivo, mas não foi sincronizada com o servidor.', 'warning');
-    return false;
-  }finally{
-    onlineSaving = false;
-  }
-}
-
-function save(){
   localStorage.setItem(K, JSON.stringify(db));
-  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-  if(onlineReady) salvarDadosOnline();
-}
-
-async function inicializarApp(){
-  if(usuarioAtual && usuarioAtual.escola){
-    var ok = await carregarDadosOnline(usuarioAtual.escola, true);
-    if(ok){
-      var atual = usuarios.find(function(u){ return String(u.usuario).toLowerCase() === String(usuarioAtual.usuario).toLowerCase(); });
-      if(atual){ usuarioAtual = atual; perfil = atual.perfil; sessionStorage.setItem('ls_user', JSON.stringify(atual)); }
-      dashboard();
-      return;
-    }
-  }
-  if(escolaAtual){
-    usarEscola(escolaAtual);
-    normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
-  }
-  telaInicial();
 }
 
 var perfil = (usuarioAtual && usuarioAtual.perfil) ? usuarioAtual.perfil : 'Coordenador';
 var escola = escolaAtual || '';
 
+function save(){ localStorage.setItem(K, JSON.stringify(db)); }
 function esc(x){
     var v = (x !== null && x !== undefined) ? String(x) : '';
     return v.replace(/[&<>"']/g, function(c){
@@ -546,47 +392,39 @@ function toggleTokenField(){
   }
 }
 
-async function solicitarTokenEmail(){
+function solicitarTokenEmail(){
   var emailEl = document.getElementById('cemail');
   var escolaEl = document.getElementById('cescola');
+  
   var email = emailEl ? emailEl.value.trim() : '';
-  var escolaSolicitante = escolaEl ? escolaEl.value.trim() : '';
+  var escola = escolaEl ? escolaEl.value.trim() : '';
 
   if(!email || !email.includes('@')){
     msg('Por favor, digite um e-mail válido para solicitar o token.', 'error');
     return;
   }
-  if(!escolaSolicitante){
-    msg('Informe a escola antes de solicitar o token.', 'error');
+
+  var solicitacoes = JSON.parse(localStorage.getItem('ls_solicitacoes_token') || '[]');
+  
+  var jaExiste = solicitacoes.some(function(s){ return s.email === email && s.status === 'pendente'; });
+  if(jaExiste){
+    msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
     return;
   }
 
-  try{
-    var pendentes = await sbRequest('solicitacoes', 'GET',
-      'select=id&email=eq.' + encodeURIComponent(email) +
-      '&escola=eq.' + encodeURIComponent(escolaSolicitante) +
-      '&status=eq.pendente&limit=1');
+  solicitacoes.push({
+    id: Date.now(),
+    email: email,
+    escola: escola,
+    data: new Date().toLocaleString('pt-BR'),
+    status: 'pendente'
+  });
 
-    if(pendentes && pendentes.length){
-      msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
-      return;
-    }
-
-    await sbRequest('solicitacoes', 'POST', '', {
-      escola: escolaSolicitante,
-      email: email,
-      data: new Date().toLocaleString('pt-BR'),
-      status: 'pendente'
-    }, {'Prefer':'return=minimal'});
-
-    notify('Solicitação enviada! Aguarde a aprovação.', 'success');
-  }catch(err){
-    console.error(err);
-    msg('Não foi possível enviar a solicitação online. Verifique as permissões da tabela solicitacoes no Supabase.', 'error');
-  }
+  localStorage.setItem('ls_solicitacoes_token', JSON.stringify(solicitacoes));
+  notify('Solicitação enviada! Aguarde a aprovação.', 'success');
 }
 
-async function criarCadastro(){
+function criarCadastro(){
  var escolaEl = document.getElementById('cescola'), userEl = document.getElementById('cuser'),
  senhaEl = document.getElementById('csenha'), confirmEl = document.getElementById('cconfirm'),
  perfilEl = document.getElementById('cperfil'), tokenEl = document.getElementById('ctoken'), emailEl = document.getElementById('cemail');
@@ -598,17 +436,10 @@ async function criarCadastro(){
  var confirmar = confirmEl ? confirmEl.value : '';
  var perfilNovo = (perfilEl && perfilEl.value) ? perfilEl.value : 'Professor';
  var tokenDigitado = tokenEl ? tokenEl.value.trim() : '';
- 
+
  if(!escolaNova || !emailNovo || !usuario || !senha || !confirmar){msg('Preencha todos os campos.', 'error');return false;}
  if(senha !== confirmar){msg('As senhas não são iguais.', 'error');return false;}
  if(usuario.length < 3){msg('O usuário deve ter pelo menos 3 caracteres.', 'error');return false;}
-
- // Carrega a escola antes de validar/cadastrar, evitando misturar usuários de escolas diferentes.
- var escolaCarregada = await carregarDadosOnline(escolaNova, true);
- if(!escolaCarregada){
-   msg('Não foi possível conectar ao banco para concluir o cadastro.', 'error');
-   return false;
- }
 
  if(perfilNovo === 'Coordenador'){
    if(!tokenDigitado){
@@ -616,36 +447,39 @@ async function criarCadastro(){
      return false;
    }
 
-   try{
-     var tokens = await sbRequest('token', 'GET',
-       'select=id,token,status,escola,email&token=eq.' + encodeURIComponent(tokenDigitado) + '&limit=1');
-     var tokenValido = tokens && tokens.length ? tokens[0] : null;
+   var tokens = [];
+   try { tokens = JSON.parse(localStorage.getItem('ls_tokens_coordenadores') || '[]'); } catch(e) { tokens = []; }
 
-     if(!tokenValido){
-       msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
-       return false;
-     }
-     if(String(tokenValido.status || '').toLowerCase() === 'usado'){
-       msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
-       return false;
-     }
-     if(tokenValido.email && String(tokenValido.email).toLowerCase() !== emailNovo.toLowerCase()){
-       msg('Esse token foi liberado para outro e-mail.', 'error');
-       return false;
-     }
-     if(tokenValido.escola && String(tokenValido.escola).toLowerCase() !== escolaNova.toLowerCase()){
-       msg('Esse token foi liberado para outra escola.', 'error');
-       return false;
-     }
+   var tokenIndex = tokens.findIndex(function(t){
+     return String(t.codigo || '').toUpperCase() === tokenDigitado.toUpperCase();
+   });
+   var tokenValido = tokenIndex >= 0 ? tokens[tokenIndex] : null;
 
-     await sbRequest('token', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
-       status: 'usado'
-     }, {'Prefer':'return=minimal'});
-   }catch(err){
-     console.error(err);
-     msg('Token inválido. Verifique o código informado e tente novamente.', 'error');
+   if(!tokenValido){
+     msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
      return false;
    }
+
+   if(tokenValido.status === 'usado'){
+     msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
+     return false;
+   }
+
+   if(tokenValido.email && tokenValido.email.toLowerCase() !== emailNovo.toLowerCase()){
+     msg('Esse token foi liberado para outro e-mail.', 'error');
+     return false;
+   }
+
+   if(tokenValido.escola && tokenValido.escola.toLowerCase() !== escolaNova.toLowerCase()){
+     msg('Esse token foi liberado para outra escola.', 'error');
+     return false;
+   }
+
+   tokenValido.status = 'usado';
+   tokenValido.usadoEm = new Date().toLocaleString('pt-BR');
+   tokenValido.usuario = usuario;
+   tokenValido.emailCadastro = emailNovo;
+   localStorage.setItem('ls_tokens_coordenadores', JSON.stringify(tokens));
  }
 
  var usuarioExiste = usuarios.some(function(u){
@@ -654,20 +488,10 @@ async function criarCadastro(){
  });
  if(usuarioExiste){msg('Esse usuário já existe. Escolha outro.', 'error');return false;}
 
- var novo = {id:Date.now(), nome:usuario, usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
+ var novo = {id:Date.now(), usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
  usuarios.push(novo);
- usarEscola(escolaNova);
  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
- localStorage.setItem(K, JSON.stringify(db));
-
- var salvou = await salvarDadosOnline();
- if(!salvou){
-   usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
-   localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-   msg('O cadastro não foi sincronizado com o servidor.', 'error');
-   return false;
- }
-
+ localStorage.setItem('ls_escola', escolaNova);
  notify('Cadastro concluído com sucesso!', 'success');
  abrirLogin(perfilNovo);
  return false;
@@ -706,7 +530,7 @@ function abrirLogin(tipo){
   '</div>';
 }
 
-async function login(tipo){
+function login(tipo){
  var escolaEl = document.getElementById('lescola'), userEl = document.getElementById('luser'), senhaEl = document.getElementById('lsenha'), lembrarEl = document.getElementById('lembrar');
  var e = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
  var u = (userEl && userEl.value ? userEl.value : '').trim();
@@ -714,12 +538,6 @@ async function login(tipo){
  var lembrar = !!(lembrarEl && lembrarEl.checked);
 
  if(!e || !u || !s){msg('Preencha escola, usuário e senha.', 'error');return false;}
-
- var carregou = await carregarDadosOnline(e, true);
- if(!carregou){
-   msg('Não foi possível consultar o banco online. Tente novamente.', 'error');
-   return false;
- }
 
  var x = usuarios.find(function(a){
     var uName = (a && a.usuario) ? String(a.usuario).trim().toLowerCase() : '';
@@ -731,9 +549,8 @@ async function login(tipo){
  if(tipo && x.perfil !== tipo){msg('Esse usuário não pertence ao perfil escolhido.', 'error');return false;}
  if(x.escola && String(x.escola).toLowerCase() !== e.toLowerCase()){msg('Esse usuário não está cadastrado nesta escola.', 'error');return false;}
 
- escola = e;
- usarEscola(e);
- perfil = x.perfil;
+ escola = e; 
+ perfil = x.perfil; 
  usuarioAtual = x;
  alertasLidos = false;
  sessionStorage.setItem('ls_user', JSON.stringify(x));
@@ -788,27 +605,26 @@ function usuariosTela(){
   );
 }
 
-async function addUsuario(){
+function addUsuario(){
   var unome = document.getElementById('unome');
   var uuser = document.getElementById('uuser');
   var usenha = document.getElementById('usenha');
   var uperfil = document.getElementById('uperfil');
   if(!unome.value || !uuser.value || !usenha.value) return msg('Preencha todos os campos.', 'error');
   
-  var existe = usuarios.some(function(u){ return String(u.usuario || '').toLowerCase() === uuser.value.trim().toLowerCase(); });
+  var existe = usuarios.some(function(u){ return u.usuario.toLowerCase() === uuser.value.trim().toLowerCase(); });
   if(existe) return msg('Usuário já existe.', 'error');
   
-  var novo = {id:Date.now(), nome:unome.value.trim(), usuario:uuser.value.trim(), senha:usenha.value, perfil:uperfil.value, escola:escola};
-  usuarios.push(novo);
-  save();
+  usuarios.push({id:Date.now(), nome:unome.value.trim(), usuario:uuser.value.trim(), senha:usenha.value, perfil:uperfil.value});
+  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
   notify('Usuário cadastrado com sucesso!', 'success');
   usuariosTela();
 }
 
 function removeUsuario(id){
-  pedirConfirmacao('Deseja realmente remover este usuário?', async function(){
+  pedirConfirmacao('Deseja realmente remover este usuário?', function(){
     usuarios = usuarios.filter(function(u){ return u.id !== id; });
-    save();
+    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
     notify('Usuário excluído com sucesso!', 'success');
     usuariosTela();
   });
@@ -1162,8 +978,29 @@ function saveEquip(){
     return msg('Preencha todos os campos.', 'error');
   }
 
+  var materialExistente = db.materiais.find(function(x){
+    return String(x.nome || '').trim().toLowerCase() === nome.toLowerCase();
+  });
+
+  if(materialExistente){
+    materialExistente.qtd = Number(materialExistente.qtd || 0) + qtd;
+    materialExistente.un = 'unidade';
+    materialExistente.cat = 'Tecnologia';
+  } else {
+    materialExistente = {
+      id: Date.now() + 1,
+      nome: nome,
+      cat: 'Tecnologia',
+      qtd: qtd,
+      min: 0,
+      un: 'unidade'
+    };
+    db.materiais.push(materialExistente);
+  }
+
   db.equip.push({
     id: Date.now(),
+    materialId: materialExistente.id,
     nome: nome,
     modelo: modelo,
     cor: cor,
@@ -1305,9 +1142,23 @@ function addEmp(){
 
   p.qtd -= q;
 
+  var equipamentoRelacionado = db.equip.find(function(e){
+    return Number(e.materialId) === Number(p.id);
+  });
+
+  if(equipamentoRelacionado){
+    equipamentoRelacionado.disp = Math.max(
+      0,
+      Number(equipamentoRelacionado.disp || 0) - q
+    );
+    equipamentoRelacionado.emp =
+      Number(equipamentoRelacionado.emp || 0) + q;
+  }
+
   db.emp.unshift({
     id: Date.now(),
     materialId: p.id,
+    equipId: equipamentoRelacionado ? equipamentoRelacionado.id : null,
     qtd: q,
     pessoa: pessoa,
     destino: destino,
@@ -1336,6 +1187,26 @@ function devolver(id){
 
   if(p){
     p.qtd += Number(l.qtd || 0);
+  }
+
+  var equipamentoDevolucao = db.equip.find(function(e){
+    return Number(e.id) === Number(l.equipId);
+  });
+
+  if(!equipamentoDevolucao && p){
+    equipamentoDevolucao = db.equip.find(function(e){
+      return Number(e.materialId) === Number(p.id);
+    });
+  }
+
+  if(equipamentoDevolucao){
+    equipamentoDevolucao.disp =
+      Number(equipamentoDevolucao.disp || 0) + Number(l.qtd || 0);
+    equipamentoDevolucao.emp =
+      Math.max(
+        0,
+        Number(equipamentoDevolucao.emp || 0) - Number(l.qtd || 0)
+      );
   }
 
   l.ativo = false;
@@ -1584,8 +1455,12 @@ cadastro = function(){
  bindForms();
 };
 
-// Inicialização: tenta carregar a escola/usuário do Supabase antes de abrir o painel.
-inicializarApp();
+save();
+if(usuarioAtual) {
+    dashboard();
+} else {
+    telaInicial();
+}
 
 </script>
 </body>
