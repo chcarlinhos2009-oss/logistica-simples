@@ -90,44 +90,55 @@
     <script>
 
 var app = document.getElementById("app");
+
+/* =========================================================
+   SUPABASE — armazenamento online do Logística Simples
+   A chave publishable/anon é apropriada para uso no navegador.
+   O banco deve permanecer protegido por RLS.
+   ========================================================= */
+var SUPABASE_URL = 'https://okrgeuuqbadsexsumjbz.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_2pow_sr87FSuqs7kZMYnBg_RbE5Sk7C';
+var SUPABASE_REST = SUPABASE_URL + '/rest/v1';
 var K = 'ls_pro';
 var AUTH_KEY = 'ls_auth';
+var onlineReady = false;
+var onlineSaving = false;
 
 // CHAVE DE SEGURANÇA PARA CADASTRAR COORDENADOR
 var COORDINATOR_KEY = null; // tokens válidos são gerados pelo Painel Dev
 
-var usuariosSalvos = localStorage.getItem(AUTH_KEY);
-var usuarios = usuariosSalvos ? JSON.parse(usuariosSalvos) : null;
-if(!usuarios) {
-    usuarios = [{id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'}];
+function sbHeaders(extra){
+  var h = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json'
+  };
+  if(extra) Object.keys(extra).forEach(function(k){ h[k] = extra[k]; });
+  return h;
 }
 
-usuarios = usuarios.map(function(u){
-    var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
-    return Object.assign({}, u, {perfil: p});
-}).filter(function(u){
-    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
-});
-
-var temAdmin = false;
-for(var i=0; i<usuarios.length; i++) {
-    if(usuarios[i].usuario === 'admin') temAdmin = true;
+function sbUrl(table, query){
+  return SUPABASE_REST + '/' + table + (query ? '?' + query : '');
 }
-if(!temAdmin) {
-    usuarios.unshift({id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'});
+
+async function sbRequest(table, method, query, body, extraHeaders){
+  var resp = await fetch(sbUrl(table, query), {
+    method: method || 'GET',
+    headers: sbHeaders(extraHeaders),
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  var text = await resp.text();
+  var data = null;
+  if(text){ try { data = JSON.parse(text); } catch(e) { data = text; } }
+  if(!resp.ok){
+    var detalhe = data && data.message ? data.message : (data && data.error ? data.error : text);
+    throw new Error('Supabase ' + resp.status + ': ' + (detalhe || 'erro na API'));
+  }
+  return data;
 }
-localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
 
-var userSessao = sessionStorage.getItem('ls_user');
-var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
-var escolaAtual = localStorage.getItem('ls_escola') || '';
-
-var alertasLidos = false;
-
-var dbSalvo = localStorage.getItem(K);
-var db = dbSalvo ? JSON.parse(dbSalvo) : null;
-if(!db) {
-  db = {
+function dadosIniciais(){
+  return {
     materiais:[
       {id:1,nome:'Papel A4',cat:'Administrativo',qtd:18,min:20,un:'pacote'},
       {id:2,nome:'Caneta azul',cat:'Material escolar',qtd:120,min:30,un:'unidade'},
@@ -143,25 +154,119 @@ if(!db) {
   };
 }
 
-if(db.equip && Array.isArray(db.equip)){
-  db.equip = db.equip.map(function(e){
-    return {
-      id: e.id || Date.now(),
-      nome: e.nome || 'Equipamento',
-      modelo: e.modelo || '-',
-      cor: e.cor || e.pat || '-',
-      total: typeof e.total === 'number' ? e.total : 1,
-      disp: typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),
-      emp: typeof e.emp === 'number' ? e.emp : 0
-    };
-  });
-  localStorage.setItem(K, JSON.stringify(db));
+function normalizarUsuarios(lista){
+  lista = Array.isArray(lista) ? lista : [];
+  return lista.map(function(u){
+    var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
+    return Object.assign({}, u, {perfil:p});
+  }).filter(function(u){ return u.perfil === 'Coordenador' || u.perfil === 'Professor'; });
+}
+
+function normalizarDb(obj){
+  var x = obj && typeof obj === 'object' ? obj : {};
+  db = {
+    materiais: Array.isArray(x.materiais) ? x.materiais : [],
+    equip: Array.isArray(x.equip) ? x.equip : [],
+    emp: Array.isArray(x.emp) ? x.emp : [],
+    hist: Array.isArray(x.hist) ? x.hist : []
+  };
+  if(db.equip && Array.isArray(db.equip)){
+    db.equip = db.equip.map(function(e){
+      return {id:e.id || Date.now(),nome:e.nome || 'Equipamento',modelo:e.modelo || '-',cor:e.cor || e.pat || '-',total:typeof e.total === 'number' ? e.total : 1,disp:typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),emp:typeof e.emp === 'number' ? e.emp : 0};
+    });
+  }
+}
+
+var userSessao = sessionStorage.getItem('ls_user');
+var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
+var escolaAtual = localStorage.getItem('ls_escola') || '';
+var alertasLidos = false;
+var db = null;
+var usuarios = [];
+normalizarDb(null);
+
+function storageKey(escolaNome){
+  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');
+}
+function usersStorageKey(escolaNome){
+  return 'ls_users_' + String(escolaNome || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');
+}
+function nomeEscolaIgual(a,b){
+  return String(a || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'') === String(b || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function usarEscola(escolaNome){
+  escolaNome = String(escolaNome || '').trim();
+  if(!escolaNome) return;
+  escolaAtual = escolaNome; escola = escolaNome; K = storageKey(escolaNome);
+  localStorage.setItem('ls_escola', escolaNome);
+}
+function carregarCacheEscola(escolaNome){
+  var cacheDb = JSON.parse(localStorage.getItem(storageKey(escolaNome)) || 'null');
+  var cacheUsers = JSON.parse(localStorage.getItem(usersStorageKey(escolaNome)) || 'null');
+  if(!cacheUsers){
+    var antigos = JSON.parse(localStorage.getItem(AUTH_KEY) || '[]');
+    if(Array.isArray(antigos)) cacheUsers = antigos.filter(function(u){ return u && u.escola && nomeEscolaIgual(u.escola, escolaNome); });
+  }
+  normalizarDb(cacheDb || {materiais:[],equip:[],emp:[],hist:[]});
+  usuarios = normalizarUsuarios(cacheUsers || []);
+}
+
+async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
+  escolaNome = String(escolaNome || '').trim();
+  if(!escolaNome) return false;
+  usarEscola(escolaNome); onlineReady = false;
+  try{
+    var rows = await sbRequest('ls_app_data','GET','select=escola,usuarios,db,updated_at&escola=ilike.' + encodeURIComponent(escolaNome) + '&limit=1');
+    var row = rows && rows.length ? rows[0] : null;
+    if(row){
+      escolaAtual = row.escola || escolaNome; escola = escolaAtual;
+      usuarios = normalizarUsuarios(row.usuarios); normalizarDb(row.db);
+      localStorage.setItem(usersStorageKey(escolaAtual),JSON.stringify(usuarios));
+      localStorage.setItem(storageKey(escolaAtual),JSON.stringify(db));
+      onlineReady = true; return true;
+    }
+    carregarCacheEscola(escolaNome);
+    if(criarSeNaoExistir !== false){
+      await sbRequest('ls_app_data','POST','',{escola:escolaNome,usuarios:usuarios,db:db,updated_at:new Date().toISOString()},{'Prefer':'resolution=merge-duplicates,return=minimal'});
+    }
+    localStorage.setItem(usersStorageKey(escolaNome),JSON.stringify(usuarios));
+    localStorage.setItem(storageKey(escolaNome),JSON.stringify(db));
+    onlineReady = true; return true;
+  }catch(err){
+    onlineReady = false; console.error('Erro ao carregar Supabase:',err);
+    notify('Não foi possível sincronizar com o banco online. Tente novamente.','warning'); return false;
+  }
+}
+async function salvarDadosOnline(){
+  if(!onlineReady || !escola) return false;
+  try{
+    await sbRequest('ls_app_data','PATCH','escola=ilike.' + encodeURIComponent(escola),{usuarios:usuarios,db:db,updated_at:new Date().toISOString()},{'Prefer':'return=minimal'});
+    return true;
+  }catch(err){ console.error('Erro ao salvar no Supabase:',err); return false; }
+}
+var onlineSaveQueue = Promise.resolve();
+function save(){
+  localStorage.setItem(K,JSON.stringify(db));
+  localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios));
+  if(!onlineReady) return Promise.resolve(false);
+  onlineSaveQueue = onlineSaveQueue.then(function(){ return salvarDadosOnline(); }).catch(function(){ return false; });
+  return onlineSaveQueue;
+}
+async function inicializarApp(){
+  if(usuarioAtual && usuarioAtual.escola){
+    var ok = await carregarDadosOnline(usuarioAtual.escola,true);
+    if(ok){
+      var atual = usuarios.find(function(u){ return String(u.usuario||'').toLowerCase() === String(usuarioAtual.usuario||'').toLowerCase(); });
+      if(atual){ usuarioAtual=atual; perfil=atual.perfil; escola=atual.escola || usuarioAtual.escola; sessionStorage.setItem('ls_user',JSON.stringify(atual)); dashboard(); return; }
+      sessionStorage.removeItem('ls_user'); usuarioAtual=null;
+    }
+  }
+  telaInicial();
 }
 
 var perfil = (usuarioAtual && usuarioAtual.perfil) ? usuarioAtual.perfil : 'Coordenador';
 var escola = escolaAtual || '';
 
-function save(){ localStorage.setItem(K, JSON.stringify(db)); }
 function esc(x){
     var v = (x !== null && x !== undefined) ? String(x) : '';
     return v.replace(/[&<>"']/g, function(c){
@@ -392,39 +497,47 @@ function toggleTokenField(){
   }
 }
 
-function solicitarTokenEmail(){
+async function solicitarTokenEmail(){
   var emailEl = document.getElementById('cemail');
   var escolaEl = document.getElementById('cescola');
-  
   var email = emailEl ? emailEl.value.trim() : '';
-  var escola = escolaEl ? escolaEl.value.trim() : '';
+  var escolaSolicitante = escolaEl ? escolaEl.value.trim() : '';
 
   if(!email || !email.includes('@')){
     msg('Por favor, digite um e-mail válido para solicitar o token.', 'error');
     return;
   }
-
-  var solicitacoes = JSON.parse(localStorage.getItem('ls_solicitacoes_token') || '[]');
-  
-  var jaExiste = solicitacoes.some(function(s){ return s.email === email && s.status === 'pendente'; });
-  if(jaExiste){
-    msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
+  if(!escolaSolicitante){
+    msg('Informe a escola antes de solicitar o token.', 'error');
     return;
   }
 
-  solicitacoes.push({
-    id: Date.now(),
-    email: email,
-    escola: escola,
-    data: new Date().toLocaleString('pt-BR'),
-    status: 'pendente'
-  });
+  try{
+    var pendentes = await sbRequest('solicitacoes', 'GET',
+      'select=id&email=eq.' + encodeURIComponent(email) +
+      '&escola=eq.' + encodeURIComponent(escolaSolicitante) +
+      '&status=eq.pendente&limit=1');
 
-  localStorage.setItem('ls_solicitacoes_token', JSON.stringify(solicitacoes));
-  notify('Solicitação enviada! Aguarde a aprovação.', 'success');
+    if(pendentes && pendentes.length){
+      msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
+      return;
+    }
+
+    await sbRequest('solicitacoes', 'POST', '', {
+      escola: escolaSolicitante,
+      email: email,
+      data: new Date().toLocaleString('pt-BR'),
+      status: 'pendente'
+    }, {'Prefer':'return=minimal'});
+
+    notify('Solicitação enviada! Aguarde a aprovação.', 'success');
+  }catch(err){
+    console.error(err);
+    msg('Não foi possível enviar a solicitação online. Verifique as permissões da tabela solicitacoes no Supabase.', 'error');
+  }
 }
 
-function criarCadastro(){
+async function criarCadastro(){
  var escolaEl = document.getElementById('cescola'), userEl = document.getElementById('cuser'),
  senhaEl = document.getElementById('csenha'), confirmEl = document.getElementById('cconfirm'),
  perfilEl = document.getElementById('cperfil'), tokenEl = document.getElementById('ctoken'), emailEl = document.getElementById('cemail');
@@ -436,10 +549,17 @@ function criarCadastro(){
  var confirmar = confirmEl ? confirmEl.value : '';
  var perfilNovo = (perfilEl && perfilEl.value) ? perfilEl.value : 'Professor';
  var tokenDigitado = tokenEl ? tokenEl.value.trim() : '';
-
+ 
  if(!escolaNova || !emailNovo || !usuario || !senha || !confirmar){msg('Preencha todos os campos.', 'error');return false;}
  if(senha !== confirmar){msg('As senhas não são iguais.', 'error');return false;}
  if(usuario.length < 3){msg('O usuário deve ter pelo menos 3 caracteres.', 'error');return false;}
+
+ // Carrega a escola antes de validar/cadastrar, evitando misturar usuários de escolas diferentes.
+ var escolaCarregada = await carregarDadosOnline(escolaNova, true);
+ if(!escolaCarregada){
+   msg('Não foi possível conectar ao banco para concluir o cadastro.', 'error');
+   return false;
+ }
 
  if(perfilNovo === 'Coordenador'){
    if(!tokenDigitado){
@@ -447,39 +567,36 @@ function criarCadastro(){
      return false;
    }
 
-   var tokens = [];
-   try { tokens = JSON.parse(localStorage.getItem('ls_tokens_coordenadores') || '[]'); } catch(e) { tokens = []; }
+   try{
+     var tokens = await sbRequest('token', 'GET',
+       'select=id,token,status,escola,email&token=eq.' + encodeURIComponent(tokenDigitado) + '&limit=1');
+     var tokenValido = tokens && tokens.length ? tokens[0] : null;
 
-   var tokenIndex = tokens.findIndex(function(t){
-     return String(t.codigo || '').toUpperCase() === tokenDigitado.toUpperCase();
-   });
-   var tokenValido = tokenIndex >= 0 ? tokens[tokenIndex] : null;
+     if(!tokenValido){
+       msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
+       return false;
+     }
+     if(String(tokenValido.status || '').toLowerCase() === 'usado'){
+       msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
+       return false;
+     }
+     if(tokenValido.email && String(tokenValido.email).toLowerCase() !== emailNovo.toLowerCase()){
+       msg('Esse token foi liberado para outro e-mail.', 'error');
+       return false;
+     }
+     if(tokenValido.escola && String(tokenValido.escola).toLowerCase() !== escolaNova.toLowerCase()){
+       msg('Esse token foi liberado para outra escola.', 'error');
+       return false;
+     }
 
-   if(!tokenValido){
-     msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
+     await sbRequest('token', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
+       status: 'usado'
+     }, {'Prefer':'return=minimal'});
+   }catch(err){
+     console.error(err);
+     msg('Token inválido. Verifique o código informado e tente novamente.', 'error');
      return false;
    }
-
-   if(tokenValido.status === 'usado'){
-     msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
-     return false;
-   }
-
-   if(tokenValido.email && tokenValido.email.toLowerCase() !== emailNovo.toLowerCase()){
-     msg('Esse token foi liberado para outro e-mail.', 'error');
-     return false;
-   }
-
-   if(tokenValido.escola && tokenValido.escola.toLowerCase() !== escolaNova.toLowerCase()){
-     msg('Esse token foi liberado para outra escola.', 'error');
-     return false;
-   }
-
-   tokenValido.status = 'usado';
-   tokenValido.usadoEm = new Date().toLocaleString('pt-BR');
-   tokenValido.usuario = usuario;
-   tokenValido.emailCadastro = emailNovo;
-   localStorage.setItem('ls_tokens_coordenadores', JSON.stringify(tokens));
  }
 
  var usuarioExiste = usuarios.some(function(u){
@@ -488,10 +605,20 @@ function criarCadastro(){
  });
  if(usuarioExiste){msg('Esse usuário já existe. Escolha outro.', 'error');return false;}
 
- var novo = {id:Date.now(), usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
+ var novo = {id:Date.now(), nome:usuario, usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
  usuarios.push(novo);
- localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
- localStorage.setItem('ls_escola', escolaNova);
+ usarEscola(escolaNova);
+ localStorage.setItem(usersStorageKey(escola), JSON.stringify(usuarios));
+ localStorage.setItem(K, JSON.stringify(db));
+
+ var salvou = await salvarDadosOnline();
+ if(!salvou){
+   usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+   localStorage.setItem(usersStorageKey(escola), JSON.stringify(usuarios));
+   msg('O cadastro não foi sincronizado com o servidor.', 'error');
+   return false;
+ }
+
  notify('Cadastro concluído com sucesso!', 'success');
  abrirLogin(perfilNovo);
  return false;
@@ -530,7 +657,7 @@ function abrirLogin(tipo){
   '</div>';
 }
 
-function login(tipo){
+async function login(tipo){
  var escolaEl = document.getElementById('lescola'), userEl = document.getElementById('luser'), senhaEl = document.getElementById('lsenha'), lembrarEl = document.getElementById('lembrar');
  var e = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
  var u = (userEl && userEl.value ? userEl.value : '').trim();
@@ -539,18 +666,26 @@ function login(tipo){
 
  if(!e || !u || !s){msg('Preencha escola, usuário e senha.', 'error');return false;}
 
+ var carregou = await carregarDadosOnline(e, true);
+ if(!carregou){
+   msg('Não foi possível consultar o banco online. Tente novamente.', 'error');
+   return false;
+ }
+
  var x = usuarios.find(function(a){
     var uName = (a && a.usuario) ? String(a.usuario).trim().toLowerCase() : '';
     var uPass = (a && a.senha !== undefined && a.senha !== null) ? String(a.senha) : '';
-    return uName === u.toLowerCase() && uPass === s;
+    var uEscola = (a && a.escola) ? String(a.escola).trim() : '';
+    return uName === u.toLowerCase() && uPass === s && (!uEscola || nomeEscolaIgual(uEscola,e));
  });
 
  if(!x){msg('Usuário ou senha incorretos.', 'error');return false;}
  if(tipo && x.perfil !== tipo){msg('Esse usuário não pertence ao perfil escolhido.', 'error');return false;}
  if(x.escola && String(x.escola).toLowerCase() !== e.toLowerCase()){msg('Esse usuário não está cadastrado nesta escola.', 'error');return false;}
 
- escola = e; 
- perfil = x.perfil; 
+ escola = e;
+ usarEscola(e);
+ perfil = x.perfil;
  usuarioAtual = x;
  alertasLidos = false;
  sessionStorage.setItem('ls_user', JSON.stringify(x));
@@ -605,28 +740,24 @@ function usuariosTela(){
   );
 }
 
-function addUsuario(){
-  var unome = document.getElementById('unome');
-  var uuser = document.getElementById('uuser');
-  var usenha = document.getElementById('usenha');
-  var uperfil = document.getElementById('uperfil');
-  if(!unome.value || !uuser.value || !usenha.value) return msg('Preencha todos os campos.', 'error');
-  
-  var existe = usuarios.some(function(u){ return u.usuario.toLowerCase() === uuser.value.trim().toLowerCase(); });
-  if(existe) return msg('Usuário já existe.', 'error');
-  
-  usuarios.push({id:Date.now(), nome:unome.value.trim(), usuario:uuser.value.trim(), senha:usenha.value, perfil:uperfil.value});
-  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-  notify('Usuário cadastrado com sucesso!', 'success');
-  usuariosTela();
+async function addUsuario(){
+  var unome=document.getElementById('unome'), uuser=document.getElementById('uuser'), usenha=document.getElementById('usenha'), uperfil=document.getElementById('uperfil');
+  if(!unome.value || !uuser.value || !usenha.value) return msg('Preencha todos os campos.','error');
+  var usuarioNovo=uuser.value.trim();
+  if(usuarios.some(function(u){return String(u.usuario||'').trim().toLowerCase()===usuarioNovo.toLowerCase();})) return msg('Usuário já existe nesta escola.','error');
+  var novo={id:Date.now(),nome:unome.value.trim(),usuario:usuarioNovo,senha:usenha.value,perfil:uperfil.value,escola:escola};
+  usuarios.push(novo);
+  var salvou=await save();
+  if(!salvou){ usuarios=usuarios.filter(function(u){return u.id!==novo.id;}); localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios)); return msg('Não foi possível salvar o usuário. Tente novamente.','error'); }
+  notify('Usuário cadastrado com sucesso!','success'); usuariosTela();
 }
 
 function removeUsuario(id){
-  pedirConfirmacao('Deseja realmente remover este usuário?', function(){
-    usuarios = usuarios.filter(function(u){ return u.id !== id; });
-    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-    notify('Usuário excluído com sucesso!', 'success');
-    usuariosTela();
+  pedirConfirmacao('Deseja realmente remover este usuário?',async function(){
+    var anterior=usuarios.slice(); usuarios=usuarios.filter(function(u){return u.id!==id;});
+    var salvou=await save();
+    if(!salvou){usuarios=anterior;localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios));return msg('Não foi possível excluir o usuário. Tente novamente.','error');}
+    notify('Usuário excluído com sucesso!','success'); usuariosTela();
   });
 }
 
@@ -978,29 +1109,8 @@ function saveEquip(){
     return msg('Preencha todos os campos.', 'error');
   }
 
-  var materialExistente = db.materiais.find(function(x){
-    return String(x.nome || '').trim().toLowerCase() === nome.toLowerCase();
-  });
-
-  if(materialExistente){
-    materialExistente.qtd = Number(materialExistente.qtd || 0) + qtd;
-    materialExistente.un = 'unidade';
-    materialExistente.cat = 'Tecnologia';
-  } else {
-    materialExistente = {
-      id: Date.now() + 1,
-      nome: nome,
-      cat: 'Tecnologia',
-      qtd: qtd,
-      min: 0,
-      un: 'unidade'
-    };
-    db.materiais.push(materialExistente);
-  }
-
   db.equip.push({
     id: Date.now(),
-    materialId: materialExistente.id,
     nome: nome,
     modelo: modelo,
     cor: cor,
@@ -1034,47 +1144,35 @@ function emprestimos(){
   var ativos = db.emp.filter(function(x){ return x.ativo; });
 
   var optionsDisp = disponiveis.length
-    ? disponiveis.map(function(p){
-        var eq = db.equip.find(function(e){ return Number(e.materialId) === Number(p.id) || e.nome === p.nome; });
-        var txtCor = (eq && eq.cor) ? ' - Cor: ' + esc(eq.cor) : '';
-        return '<option value="' + p.id + '">' + esc(p.nome) + ' (' + p.qtd + ' disponíveis)' + txtCor + '</option>';
-      }).join('')
+    ? disponiveis.map(function(p){ return '<option value="' + p.id + '">' + esc(p.nome) + ' (' + p.qtd + ' disponíveis)</option>'; }).join('')
     : '<option value="">Nenhum item disponível</option>';
 
   var nomeUsuarioVal = (perfil === 'Professor' && usuarioAtual && usuarioAtual.nome) ? esc(usuarioAtual.nome) : '';
 
   var tabelaDesktop = ativos.map(function(l){
     var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
-    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId) || (p && x.materialId === p.id) || (p && x.nome === p.nome); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
     var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
-    var cor = (e && e.cor) ? e.cor : '-';
 
     return '<tr>' +
       '<td class="p-4 font-semibold">' + esc(nome) + '</td>' +
-      '<td class="p-4 text-xs font-semibold text-gray-600 dark:text-gray-300">' +
-        '<span class="inline-block px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600">' +
-          '<i class="fas fa-palette mr-1 text-brandGreen"></i>' + esc(cor) +
-        '</span>' +
-      '</td>' +
       '<td class="p-4 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
       '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
       '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) + '</td>' +
       '<td class="p-4 text-xs text-gray-400">' + l.data + '</td>' +
       '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
     '</tr>';
-  }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum item emprestado.</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="p-8 text-center text-gray-400">Nenhum item emprestado.</td></tr>';
 
   var cardsMobile = ativos.map(function(l){
     var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
-    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId) || (p && x.materialId === p.id) || (p && x.nome === p.nome); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
     var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
-    var cor = (e && e.cor) ? e.cor : '-';
 
     return '<div class="p-4 space-y-2 text-xs">' +
       '<div class="flex justify-between items-start">' +
         '<div>' +
           '<div class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</div>' +
-          '<div class="text-[11px] text-gray-500 dark:text-gray-400"><i class="fas fa-palette mr-1 text-brandGreen"></i>Cor: <strong class="text-gray-700 dark:text-gray-200">' + esc(cor) + '</strong></div>' +
           '<div class="text-brandGreen font-semibold mt-0.5">Por: ' + esc(l.pessoa) + '</div>' +
         '</div>' +
         '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold text-xs">' + (l.qtd || 1) + ' un.</span>' +
@@ -1090,12 +1188,12 @@ function emprestimos(){
   }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum item emprestado.</div>';
 
   shell(
-    head('Empréstimos','Retiradas e devoluções com cor do equipamento') +
+    head('Empréstimos','Retiradas e devoluções') +
     '<div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-sm border mb-5">' +
       '<h2 class="font-bold text-base mb-3">Registrar retirada</h2>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
         '<div>' +
-          '<label class="label">Item / Cor</label>' +
+          '<label class="label">Item</label>' +
           '<select id="le" class="input">' + optionsDisp + '</select>' +
         '</div>' +
         '<div>' +
@@ -1122,7 +1220,6 @@ function emprestimos(){
           '<thead>' +
             '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
               '<th class="p-4">Item</th>' +
-              '<th class="p-4">Cor</th>' +
               '<th class="p-4">Qtd.</th>' +
               '<th class="p-4">Retirado por</th>' +
               '<th class="p-4">Destino</th>' +
@@ -1155,23 +1252,9 @@ function addEmp(){
 
   p.qtd -= q;
 
-  var equipamentoRelacionado = db.equip.find(function(e){
-    return Number(e.materialId) === Number(p.id) || e.nome === p.nome;
-  });
-
-  if(equipamentoRelacionado){
-    equipamentoRelacionado.disp = Math.max(
-      0,
-      Number(equipamentoRelacionado.disp || 0) - q
-    );
-    equipamentoRelacionado.emp =
-      Number(equipamentoRelacionado.emp || 0) + q;
-  }
-
   db.emp.unshift({
     id: Date.now(),
     materialId: p.id,
-    equipId: equipamentoRelacionado ? equipamentoRelacionado.id : null,
     qtd: q,
     pessoa: pessoa,
     destino: destino,
@@ -1179,8 +1262,7 @@ function addEmp(){
     ativo: true
   });
 
-  var infoCor = (equipamentoRelacionado && equipamentoRelacionado.cor) ? ' (Cor: ' + equipamentoRelacionado.cor + ')' : '';
-  hist('Empréstimo', p.nome + infoCor, q + ' un.', pessoa + ' · ' + destino);
+  hist('Empréstimo', p.nome, q + ' un.', pessoa + ' · ' + destino);
   save();
 
   if(p.qtd <= p.min){
@@ -1201,26 +1283,6 @@ function devolver(id){
 
   if(p){
     p.qtd += Number(l.qtd || 0);
-  }
-
-  var equipamentoDevolucao = db.equip.find(function(e){
-    return Number(e.id) === Number(l.equipId);
-  });
-
-  if(!equipamentoDevolucao && p){
-    equipamentoDevolucao = db.equip.find(function(e){
-      return Number(e.materialId) === Number(p.id) || e.nome === p.nome;
-    });
-  }
-
-  if(equipamentoDevolucao){
-    equipamentoDevolucao.disp =
-      Number(equipamentoDevolucao.disp || 0) + Number(l.qtd || 0);
-    equipamentoDevolucao.emp =
-      Math.max(
-        0,
-        Number(equipamentoDevolucao.emp || 0) - Number(l.qtd || 0)
-      );
   }
 
   l.ativo = false;
@@ -1307,19 +1369,17 @@ function imprimirRelatorio(){
   
   var tabelaEmp = ativos.length ? ativos.map(function(l){
     var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
-    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId) || (p && x.materialId === p.id) || (p && x.nome === p.nome); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
     var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
-    var cor = (e && e.cor) ? e.cor : '-';
 
     return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
       '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(nome) + '</td>' +
-      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + esc(cor) + '</td>' +
       '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + (l.qtd || 1) + '</td>' +
       '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(l.pessoa) + '</td>' +
       '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(l.destino) + '</td>' +
       '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + l.data + '</td>' +
     '</tr>';
-  }).join('') : '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Nenhum material em posse de terceiros no momento.</td></tr>';
+  }).join('') : '<tr><td colspan="5" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Nenhum material em posse de terceiros no momento.</td></tr>';
 
   var tabelaAlerta = db.materiais.filter(function(p){ return p.qtd <= p.min; }).map(function(p){
     return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
@@ -1356,7 +1416,6 @@ function imprimirRelatorio(){
           '<thead>' +
             '<tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">' +
               '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Item / Material</th>' +
-              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Cor</th>' +
               '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Qtd.</th>' +
               '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Retirado por</th>' +
               '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Destino / Sala</th>' +
@@ -1379,32 +1438,26 @@ function relatorios(){
 
   var tabelaDesktop = ativos.map(function(l){
     var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
-    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId) || (p && x.materialId === p.id) || (p && x.nome === p.nome); });
+    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
     var nome = (p && p.nome) ? p.nome : ((eg && eg.nome) ? eg.nome : 'Item');
-    var cor = (eg && eg.cor) ? eg.cor : '-';
 
     return '<tr>' +
       '<td class="p-3 font-semibold">' + esc(nome) + '</td>' +
-      '<td class="p-3 text-xs font-semibold text-gray-600 dark:text-gray-300">' + esc(cor) + '</td>' +
       '<td class="p-3 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
       '<td class="p-3 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
       '<td class="p-3 text-gray-500">' + esc(l.destino) + '</td>' +
       '<td class="p-3 text-xs text-gray-400">' + l.data + '</td>' +
     '</tr>';
-  }).join('') || '<tr><td colspan="6" class="p-6 text-center text-gray-400">Nenhum material emprestado no momento.</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="p-6 text-center text-gray-400">Nenhum material emprestado no momento.</td></tr>';
 
   var cardsMobile = ativos.map(function(l){
     var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
-    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId) || (p && x.materialId === p.id) || (p && x.nome === p.nome); });
+    var eg = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
     var nome = (p && p.nome) ? p.nome : ((eg && eg.nome) ? eg.nome : 'Item');
-    var cor = (eg && eg.cor) ? eg.cor : '-';
 
     return '<div class="p-3.5 space-y-1 text-xs">' +
       '<div class="flex justify-between items-start">' +
-        '<div>' +
-          '<span class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</span>' +
-          '<div class="text-[10px] text-gray-400">Cor: ' + esc(cor) + '</div>' +
-        '</div>' +
+        '<span class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</span>' +
         '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold">' + (l.qtd || 1) + ' un.</span>' +
       '</div>' +
       '<div class="text-brandGreen font-medium">Quem retirou: <strong>' + esc(l.pessoa) + '</strong></div>' +
@@ -1438,7 +1491,6 @@ function relatorios(){
             '<thead>' +
               '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
                 '<th class="p-3">Material / Item</th>' +
-                '<th class="p-3">Cor</th>' +
                 '<th class="p-3">Qtd.</th>' +
                 '<th class="p-3">Quem Retirou</th>' +
                 '<th class="p-3">Destino</th>' +
@@ -1479,12 +1531,8 @@ cadastro = function(){
  bindForms();
 };
 
-save();
-if(usuarioAtual) {
-    dashboard();
-} else {
-    telaInicial();
-}
+// Inicialização: tenta carregar a escola/usuário do Supabase antes de abrir o painel.
+inicializarApp();
 
 </script>
 </body>
