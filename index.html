@@ -205,100 +205,182 @@ var db = null;
 normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
 localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
 
-function storageKey(escolaNome){
-  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]+/gi,'_').replace(/^_|_$/g,'');
+function normalizarNomeEscola(nome){
+  return String(nome || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
+function storageKey(escolaNome){
+  return 'ls_pro_' + normalizarNomeEscola(escolaNome)
+    .replace(/[^a-z0-9]+/gi, '_')
+    .replace(/^_|_$/g,'');
+}
+
+var escolaBanco = '';
+
 function usarEscola(escolaNome){
-  escolaNome = String(escolaNome || '').trim();
+  escolaNome = String(escolaNome || '').trim().replace(/\s+/g, ' ');
   if(!escolaNome) return;
+
   escolaAtual = escolaNome;
   escola = escolaNome;
   K = storageKey(escolaNome);
+
+  // Cada escola possui seu próprio cache local.
+  AUTH_KEY = 'ls_auth_' + storageKey(escolaNome);
+
   localStorage.setItem('ls_escola', escolaNome);
 }
 
 async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
-  escolaNome = String(escolaNome || '').trim();
+  escolaNome = String(escolaNome || '').trim().replace(/\s+/g, ' ');
   if(!escolaNome) return false;
 
-  var keyAnterior = K;
   usarEscola(escolaNome);
 
   try{
-    var rows = await sbRequest('ls_app_data', 'GET', 'select=*&escola=eq.' + encodeURIComponent(escolaNome) + '&limit=1');
-    var row = rows && rows.length ? rows[0] : null;
+    var chaveEscola = normalizarNomeEscola(escolaNome);
+
+    // Primeiro tenta sem diferenciar maiúsculas/minúsculas.
+    var rows = await sbRequest(
+      'ls_app_data',
+      'GET',
+      'select=*&escola=ilike.' + encodeURIComponent(escolaNome) + '&limit=20'
+    );
+
+    var row = (rows || []).find(function(r){
+      return normalizarNomeEscola(r.escola) === chaveEscola;
+    }) || null;
+
+    // Se houver diferença de acentos, procura entre as escolas existentes.
+    if(!row){
+      var todas = await sbRequest(
+        'ls_app_data',
+        'GET',
+        'select=*&limit=1000'
+      );
+
+      row = (todas || []).find(function(r){
+        return normalizarNomeEscola(r.escola) === chaveEscola;
+      }) || null;
+    }
 
     if(row){
+      // Usa o nome que já existe no servidor.
+      escolaBanco = String(row.escola || escolaNome).trim();
+      usarEscola(escolaBanco);
+
       usuarios = normalizarUsuarios(row.usuarios);
       normalizarDb(row.db);
+
       localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
       localStorage.setItem(K, JSON.stringify(db));
+
       onlineReady = true;
       return true;
     }
 
-    // Primeira utilização desta escola: aproveita o cache local dessa escola,
-    // ou cria o ambiente inicial do protótipo.
+    // Escola realmente nova: não copia usuários de outra escola.
+    escolaBanco = escolaNome;
+    usarEscola(escolaBanco);
+
     var cache = JSON.parse(localStorage.getItem(K) || 'null');
     normalizarDb(cache || dadosIniciais());
-    usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+
+    usuarios = normalizarUsuarios(
+      JSON.parse(localStorage.getItem(AUTH_KEY) || '[]')
+    );
 
     if(criarSeNaoExistir !== false){
-      await sbRequest('ls_app_data', 'POST', '', {
-        escola: escolaNome,
-        usuarios: usuarios,
-        db: db
-      }, {'Prefer':'return=minimal'});
+      await sbRequest(
+        'ls_app_data',
+        'POST',
+        '',
+        {
+          escola: escolaBanco,
+          usuarios: usuarios,
+          db: db
+        },
+        {'Prefer':'return=minimal'}
+      );
+
+      // Confirma que a escola realmente ficou disponível no servidor.
+      var confirmacaoNovaEscola = await sbRequest(
+        'ls_app_data',
+        'GET',
+        'select=escola&escola=eq.' + encodeURIComponent(escolaBanco) + '&limit=1'
+      );
+
+      if(!confirmacaoNovaEscola || !confirmacaoNovaEscola.length){
+        throw new Error('A escola não foi confirmada no servidor.');
+      }
     }
 
     localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
     localStorage.setItem(K, JSON.stringify(db));
+
     onlineReady = true;
     return true;
+
   }catch(err){
     onlineReady = false;
-    // Mantém o protótipo funcionando com o cache local se o banco estiver indisponível.
-    var cacheLocal = JSON.parse(localStorage.getItem(K) || 'null');
-    if(cacheLocal) normalizarDb(cacheLocal);
-    if(keyAnterior && keyAnterior !== K){
-      // nada: o cache da escola já foi tentado acima
-    }
+
     console.error('Erro ao carregar Supabase:', err);
-    notify('Não foi possível sincronizar com o banco online. O modo local foi mantido.', 'warning');
+    notify('Não foi possível sincronizar com o banco online. Tente novamente.', 'error');
     return false;
   }
 }
 
 async function salvarDadosOnline(){
-  if(!onlineReady || !escola) return false;
-  if(onlineSaving) return false;
+  if(!onlineReady || !(escolaBanco || escola)) return false;
+
+  // Espera uma gravação anterior em vez de declarar a nova como falha.
+  while(onlineSaving){
+    await new Promise(function(resolve){ setTimeout(resolve, 50); });
+  }
 
   onlineSaving = true;
 
   try{
-    var resultado = await sbRequest(
+    var escolaParaSalvar = escolaBanco || escola;
+
+    await sbRequest(
       'ls_app_data',
       'PATCH',
-      'escola=eq.' + encodeURIComponent(escola) + '&select=id,escola',
+      'escola=eq.' + encodeURIComponent(escolaParaSalvar),
       {
         usuarios: usuarios,
         db: db,
         updated_at: new Date().toISOString()
       },
-      {'Prefer':'return=representation'}
+      {'Prefer':'return=minimal'}
     );
 
-    // Sem uma linha retornada, o cadastro não foi realmente
-    // atualizado no servidor.
-    if(!Array.isArray(resultado) || resultado.length === 0){
-      throw new Error('A escola não foi encontrada para salvar os dados online.');
+    // Confirma lendo novamente a escola. Isso evita mostrar
+    // "cadastro concluído" quando o servidor não salvou a alteração.
+    var confirmacao = await sbRequest(
+      'ls_app_data',
+      'GET',
+      'select=usuarios,db,escola&escola=eq.' + encodeURIComponent(escolaParaSalvar) + '&limit=1'
+    );
+
+    if(!confirmacao || !confirmacao.length){
+      throw new Error('A alteração não foi confirmada no servidor.');
     }
+
+    // Mantém a cópia local alinhada ao que está no servidor.
+    usuarios = normalizarUsuarios(confirmacao[0].usuarios);
+    normalizarDb(confirmacao[0].db);
 
     return true;
 
   }catch(err){
     console.error('Erro ao salvar no Supabase:', err);
+    notify('Não foi possível salvar a alteração online. Tente novamente.', 'error');
     return false;
 
   }finally{
@@ -309,7 +391,12 @@ async function salvarDadosOnline(){
 function save(){
   localStorage.setItem(K, JSON.stringify(db));
   localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-  if(onlineReady) salvarDadosOnline();
+
+  if(onlineReady){
+    return salvarDadosOnline();
+  }
+
+  return Promise.resolve(false);
 }
 
 async function inicializarApp(){
@@ -626,6 +713,9 @@ async function criarCadastro(){
    return false;
  }
 
+ // Se a escola já existe, usa o nome oficial que está no servidor.
+ escolaNova = escolaBanco || escola;
+
  if(perfilNovo === 'Coordenador'){
    if(!tokenDigitado){
      msg('Informe o Token de Segurança do Coordenador.', 'error');
@@ -810,13 +900,14 @@ async function addUsuario(){
   var usenha = document.getElementById('usenha');
   var uperfil = document.getElementById('uperfil');
 
-  if(!unome.value || !uuser.value || !usenha.value)
+  if(!unome.value || !uuser.value || !usenha.value){
     return msg('Preencha todos os campos.', 'error');
+  }
 
-  var usuarioNovo = uuser.value.trim();
+  var nomeUsuario = uuser.value.trim();
 
   var existe = usuarios.some(function(u){
-    return String(u.usuario || '').trim().toLowerCase() === usuarioNovo.toLowerCase();
+    return String(u.usuario || '').trim().toLowerCase() === nomeUsuario.toLowerCase();
   });
 
   if(existe) return msg('Usuário já existe.', 'error');
@@ -824,25 +915,25 @@ async function addUsuario(){
   var novo = {
     id: Date.now(),
     nome: unome.value.trim(),
-    usuario: usuarioNovo,
+    usuario: nomeUsuario,
     senha: usenha.value,
     perfil: uperfil.value,
-    escola: escola
+    escola: escolaBanco || escola
   };
 
   usuarios.push(novo);
-  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-  localStorage.setItem(K, JSON.stringify(db));
 
-  // Confirma o cadastro no servidor antes de mostrar sucesso.
-  // Antes, save() iniciava o PATCH sem await; por isso o professor
-  // podia existir apenas no navegador do coordenador.
-  var salvouOnline = await salvarDadosOnline();
+  // O cadastro só é confirmado depois que o servidor confirma a gravação.
+  var salvou = await save();
 
-  if(!salvouOnline){
-    usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+  if(!salvou){
+    usuarios = usuarios.filter(function(u){
+      return u.id !== novo.id;
+    });
+
     localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
-    msg('Não foi possível cadastrar o usuário. Tente novamente.', 'error');
+
+    msg('Não foi possível cadastrar o professor online. Tente novamente.', 'error');
     return;
   }
 
