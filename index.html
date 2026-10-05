@@ -156,110 +156,175 @@ function dadosIniciais(){
 
 function normalizarUsuarios(lista){
   lista = Array.isArray(lista) ? lista : [];
-  return lista.map(function(u){
+  lista = lista.map(function(u){
     var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
-    return Object.assign({}, u, {perfil:p});
-  }).filter(function(u){ return u.perfil === 'Coordenador' || u.perfil === 'Professor'; });
+    return Object.assign({}, u, {perfil: p});
+  }).filter(function(u){
+    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
+  });
+
+  var temAdmin = lista.some(function(u){ return String(u.usuario || '').toLowerCase() === 'admin'; });
+  if(!temAdmin){
+    lista.unshift({id:1, nome:'Administrador', usuario:'admin', senha:'1234', perfil:'Coordenador'});
+  }
+  return lista;
 }
 
 function normalizarDb(obj){
+  var base = dadosIniciais();
   var x = obj && typeof obj === 'object' ? obj : {};
   db = {
-    materiais: Array.isArray(x.materiais) ? x.materiais : [],
-    equip: Array.isArray(x.equip) ? x.equip : [],
+    materiais: Array.isArray(x.materiais) ? x.materiais : base.materiais,
+    equip: Array.isArray(x.equip) ? x.equip : base.equip,
     emp: Array.isArray(x.emp) ? x.emp : [],
     hist: Array.isArray(x.hist) ? x.hist : []
   };
+
   if(db.equip && Array.isArray(db.equip)){
     db.equip = db.equip.map(function(e){
-      return {id:e.id || Date.now(),nome:e.nome || 'Equipamento',modelo:e.modelo || '-',cor:e.cor || e.pat || '-',total:typeof e.total === 'number' ? e.total : 1,disp:typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),emp:typeof e.emp === 'number' ? e.emp : 0};
+      return {
+        id: e.id || Date.now(),
+        nome: e.nome || 'Equipamento',
+        modelo: e.modelo || '-',
+        cor: e.cor || e.pat || '-',
+        total: typeof e.total === 'number' ? e.total : 1,
+        disp: typeof e.disp === 'number' ? e.disp : (typeof e.total === 'number' ? e.total : 1),
+        emp: typeof e.emp === 'number' ? e.emp : 0
+      };
     });
   }
 }
 
+var usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
 var userSessao = sessionStorage.getItem('ls_user');
 var usuarioAtual = userSessao ? JSON.parse(userSessao) : null;
 var escolaAtual = localStorage.getItem('ls_escola') || '';
 var alertasLidos = false;
 var db = null;
-var usuarios = [];
-normalizarDb(null);
+
+normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
+localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
 
 function storageKey(escolaNome){
-  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');
+  return 'ls_pro_' + String(escolaNome || '').trim().toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]+/gi,'_').replace(/^_|_$/g,'');
 }
-function usersStorageKey(escolaNome){
-  return 'ls_users_' + String(escolaNome || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');
-}
-function nomeEscolaIgual(a,b){
-  return String(a || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'') === String(b || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-}
+
 function usarEscola(escolaNome){
   escolaNome = String(escolaNome || '').trim();
   if(!escolaNome) return;
-  escolaAtual = escolaNome; escola = escolaNome; K = storageKey(escolaNome);
+  escolaAtual = escolaNome;
+  escola = escolaNome;
+  K = storageKey(escolaNome);
   localStorage.setItem('ls_escola', escolaNome);
-}
-function carregarCacheEscola(escolaNome){
-  var cacheDb = JSON.parse(localStorage.getItem(storageKey(escolaNome)) || 'null');
-  var cacheUsers = JSON.parse(localStorage.getItem(usersStorageKey(escolaNome)) || 'null');
-  if(!cacheUsers){
-    var antigos = JSON.parse(localStorage.getItem(AUTH_KEY) || '[]');
-    if(Array.isArray(antigos)) cacheUsers = antigos.filter(function(u){ return u && u.escola && nomeEscolaIgual(u.escola, escolaNome); });
-  }
-  normalizarDb(cacheDb || {materiais:[],equip:[],emp:[],hist:[]});
-  usuarios = normalizarUsuarios(cacheUsers || []);
 }
 
 async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
   escolaNome = String(escolaNome || '').trim();
   if(!escolaNome) return false;
-  usarEscola(escolaNome); onlineReady = false;
+
+  var keyAnterior = K;
+  usarEscola(escolaNome);
+
   try{
-    var rows = await sbRequest('ls_app_data','GET','select=escola,usuarios,db,updated_at&escola=ilike.' + encodeURIComponent(escolaNome) + '&limit=1');
+    var rows = await sbRequest('ls_app_data', 'GET', 'select=*&escola=eq.' + encodeURIComponent(escolaNome) + '&limit=1');
     var row = rows && rows.length ? rows[0] : null;
+
     if(row){
-      escolaAtual = row.escola || escolaNome; escola = escolaAtual;
-      usuarios = normalizarUsuarios(row.usuarios); normalizarDb(row.db);
-      localStorage.setItem(usersStorageKey(escolaAtual),JSON.stringify(usuarios));
-      localStorage.setItem(storageKey(escolaAtual),JSON.stringify(db));
-      onlineReady = true; return true;
+      usuarios = normalizarUsuarios(row.usuarios);
+      normalizarDb(row.db);
+      localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+      localStorage.setItem(K, JSON.stringify(db));
+      onlineReady = true;
+      return true;
     }
-    carregarCacheEscola(escolaNome);
+
+    // Primeira utilização desta escola: aproveita o cache local dessa escola,
+    // ou cria o ambiente inicial do protótipo.
+    var cache = JSON.parse(localStorage.getItem(K) || 'null');
+    normalizarDb(cache || dadosIniciais());
+    usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+
     if(criarSeNaoExistir !== false){
-      await sbRequest('ls_app_data','POST','',{escola:escolaNome,usuarios:usuarios,db:db,updated_at:new Date().toISOString()},{'Prefer':'resolution=merge-duplicates,return=minimal'});
+      await sbRequest('ls_app_data', 'POST', '', {
+        escola: escolaNome,
+        usuarios: usuarios,
+        db: db
+      }, {'Prefer':'return=minimal'});
     }
-    localStorage.setItem(usersStorageKey(escolaNome),JSON.stringify(usuarios));
-    localStorage.setItem(storageKey(escolaNome),JSON.stringify(db));
-    onlineReady = true; return true;
+
+    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+    localStorage.setItem(K, JSON.stringify(db));
+    onlineReady = true;
+    return true;
   }catch(err){
-    onlineReady = false; console.error('Erro ao carregar Supabase:',err);
-    notify('Não foi possível sincronizar com o banco online. Tente novamente.','warning'); return false;
+    onlineReady = false;
+    // Mantém o protótipo funcionando com o cache local se o banco estiver indisponível.
+    var cacheLocal = JSON.parse(localStorage.getItem(K) || 'null');
+    if(cacheLocal) normalizarDb(cacheLocal);
+    if(keyAnterior && keyAnterior !== K){
+      // nada: o cache da escola já foi tentado acima
+    }
+    console.error('Erro ao carregar Supabase:', err);
+    notify('Não foi possível sincronizar com o banco online. O modo local foi mantido.', 'warning');
+    return false;
   }
 }
+
 async function salvarDadosOnline(){
   if(!onlineReady || !escola) return false;
+  if(onlineSaving) return false;
+
+  onlineSaving = true;
+
   try{
-    await sbRequest('ls_app_data','PATCH','escola=ilike.' + encodeURIComponent(escola),{usuarios:usuarios,db:db,updated_at:new Date().toISOString()},{'Prefer':'return=minimal'});
+    var resultado = await sbRequest(
+      'ls_app_data',
+      'PATCH',
+      'escola=eq.' + encodeURIComponent(escola) + '&select=id,escola',
+      {
+        usuarios: usuarios,
+        db: db,
+        updated_at: new Date().toISOString()
+      },
+      {'Prefer':'return=representation'}
+    );
+
+    // Sem uma linha retornada, o cadastro não foi realmente
+    // atualizado no servidor.
+    if(!Array.isArray(resultado) || resultado.length === 0){
+      throw new Error('A escola não foi encontrada para salvar os dados online.');
+    }
+
     return true;
-  }catch(err){ console.error('Erro ao salvar no Supabase:',err); return false; }
+
+  }catch(err){
+    console.error('Erro ao salvar no Supabase:', err);
+    return false;
+
+  }finally{
+    onlineSaving = false;
+  }
 }
-var onlineSaveQueue = Promise.resolve();
+
 function save(){
-  localStorage.setItem(K,JSON.stringify(db));
-  localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios));
-  if(!onlineReady) return Promise.resolve(false);
-  onlineSaveQueue = onlineSaveQueue.then(function(){ return salvarDadosOnline(); }).catch(function(){ return false; });
-  return onlineSaveQueue;
+  localStorage.setItem(K, JSON.stringify(db));
+  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+  if(onlineReady) salvarDadosOnline();
 }
+
 async function inicializarApp(){
   if(usuarioAtual && usuarioAtual.escola){
-    var ok = await carregarDadosOnline(usuarioAtual.escola,true);
+    var ok = await carregarDadosOnline(usuarioAtual.escola, true);
     if(ok){
-      var atual = usuarios.find(function(u){ return String(u.usuario||'').toLowerCase() === String(usuarioAtual.usuario||'').toLowerCase(); });
-      if(atual){ usuarioAtual=atual; perfil=atual.perfil; escola=atual.escola || usuarioAtual.escola; sessionStorage.setItem('ls_user',JSON.stringify(atual)); dashboard(); return; }
-      sessionStorage.removeItem('ls_user'); usuarioAtual=null;
+      var atual = usuarios.find(function(u){ return String(u.usuario).toLowerCase() === String(usuarioAtual.usuario).toLowerCase(); });
+      if(atual){ usuarioAtual = atual; perfil = atual.perfil; sessionStorage.setItem('ls_user', JSON.stringify(atual)); }
+      dashboard();
+      return;
     }
+  }
+  if(escolaAtual){
+    usarEscola(escolaAtual);
+    normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
   }
   telaInicial();
 }
@@ -608,13 +673,13 @@ async function criarCadastro(){
  var novo = {id:Date.now(), nome:usuario, usuario:usuario, email:emailNovo, senha:senha, perfil:perfilNovo, escola:escolaNova};
  usuarios.push(novo);
  usarEscola(escolaNova);
- localStorage.setItem(usersStorageKey(escola), JSON.stringify(usuarios));
+ localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
  localStorage.setItem(K, JSON.stringify(db));
 
  var salvou = await salvarDadosOnline();
  if(!salvou){
    usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
-   localStorage.setItem(usersStorageKey(escola), JSON.stringify(usuarios));
+   localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
    msg('O cadastro não foi sincronizado com o servidor.', 'error');
    return false;
  }
@@ -675,8 +740,7 @@ async function login(tipo){
  var x = usuarios.find(function(a){
     var uName = (a && a.usuario) ? String(a.usuario).trim().toLowerCase() : '';
     var uPass = (a && a.senha !== undefined && a.senha !== null) ? String(a.senha) : '';
-    var uEscola = (a && a.escola) ? String(a.escola).trim() : '';
-    return uName === u.toLowerCase() && uPass === s && (!uEscola || nomeEscolaIgual(uEscola,e));
+    return uName === u.toLowerCase() && uPass === s;
  });
 
  if(!x){msg('Usuário ou senha incorretos.', 'error');return false;}
@@ -741,23 +805,57 @@ function usuariosTela(){
 }
 
 async function addUsuario(){
-  var unome=document.getElementById('unome'), uuser=document.getElementById('uuser'), usenha=document.getElementById('usenha'), uperfil=document.getElementById('uperfil');
-  if(!unome.value || !uuser.value || !usenha.value) return msg('Preencha todos os campos.','error');
-  var usuarioNovo=uuser.value.trim();
-  if(usuarios.some(function(u){return String(u.usuario||'').trim().toLowerCase()===usuarioNovo.toLowerCase();})) return msg('Usuário já existe nesta escola.','error');
-  var novo={id:Date.now(),nome:unome.value.trim(),usuario:usuarioNovo,senha:usenha.value,perfil:uperfil.value,escola:escola};
+  var unome = document.getElementById('unome');
+  var uuser = document.getElementById('uuser');
+  var usenha = document.getElementById('usenha');
+  var uperfil = document.getElementById('uperfil');
+
+  if(!unome.value || !uuser.value || !usenha.value)
+    return msg('Preencha todos os campos.', 'error');
+
+  var usuarioNovo = uuser.value.trim();
+
+  var existe = usuarios.some(function(u){
+    return String(u.usuario || '').trim().toLowerCase() === usuarioNovo.toLowerCase();
+  });
+
+  if(existe) return msg('Usuário já existe.', 'error');
+
+  var novo = {
+    id: Date.now(),
+    nome: unome.value.trim(),
+    usuario: usuarioNovo,
+    senha: usenha.value,
+    perfil: uperfil.value,
+    escola: escola
+  };
+
   usuarios.push(novo);
-  var salvou=await save();
-  if(!salvou){ usuarios=usuarios.filter(function(u){return u.id!==novo.id;}); localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios)); return msg('Não foi possível salvar o usuário. Tente novamente.','error'); }
-  notify('Usuário cadastrado com sucesso!','success'); usuariosTela();
+  localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+  localStorage.setItem(K, JSON.stringify(db));
+
+  // Confirma o cadastro no servidor antes de mostrar sucesso.
+  // Antes, save() iniciava o PATCH sem await; por isso o professor
+  // podia existir apenas no navegador do coordenador.
+  var salvouOnline = await salvarDadosOnline();
+
+  if(!salvouOnline){
+    usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+    msg('Não foi possível cadastrar o usuário. Tente novamente.', 'error');
+    return;
+  }
+
+  notify('Usuário cadastrado com sucesso!', 'success');
+  usuariosTela();
 }
 
 function removeUsuario(id){
-  pedirConfirmacao('Deseja realmente remover este usuário?',async function(){
-    var anterior=usuarios.slice(); usuarios=usuarios.filter(function(u){return u.id!==id;});
-    var salvou=await save();
-    if(!salvou){usuarios=anterior;localStorage.setItem(usersStorageKey(escola),JSON.stringify(usuarios));return msg('Não foi possível excluir o usuário. Tente novamente.','error');}
-    notify('Usuário excluído com sucesso!','success'); usuariosTela();
+  pedirConfirmacao('Deseja realmente remover este usuário?', async function(){
+    usuarios = usuarios.filter(function(u){ return u.id !== id; });
+    save();
+    notify('Usuário excluído com sucesso!', 'success');
+    usuariosTela();
   });
 }
 
