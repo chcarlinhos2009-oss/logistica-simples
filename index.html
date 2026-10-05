@@ -170,14 +170,17 @@ function normalizarUsuarios(lista){
   return lista;
 }
 
-function normalizarDb(obj){
+function normalizarDb(obj, usarBase){
   var base = dadosIniciais();
+  var vazio = {materiais:[], equip:[], emp:[], hist:[]};
   var x = obj && typeof obj === 'object' ? obj : {};
+  var fallback = usarBase === false ? vazio : base;
+
   db = {
-    materiais: Array.isArray(x.materiais) ? x.materiais : base.materiais,
-    equip: Array.isArray(x.equip) ? x.equip : base.equip,
-    emp: Array.isArray(x.emp) ? x.emp : [],
-    hist: Array.isArray(x.hist) ? x.hist : []
+    materiais: Array.isArray(x.materiais) ? x.materiais : fallback.materiais,
+    equip: Array.isArray(x.equip) ? x.equip : fallback.equip,
+    emp: Array.isArray(x.emp) ? x.emp : fallback.emp,
+    hist: Array.isArray(x.hist) ? x.hist : fallback.hist
   };
 
   if(db.equip && Array.isArray(db.equip)){
@@ -221,6 +224,7 @@ function storageKey(escolaNome){
 }
 
 var escolaBanco = '';
+var escolaIdBanco = null;
 
 function usarEscola(escolaNome){
   escolaNome = String(escolaNome || '').trim().replace(/\s+/g, ' ');
@@ -236,7 +240,7 @@ function usarEscola(escolaNome){
   localStorage.setItem('ls_escola', escolaNome);
 }
 
-async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
+async function carregarDadosOnline(escolaNome, criarSeNaoExistir, usuarioBusca){
   escolaNome = String(escolaNome || '').trim().replace(/\s+/g, ' ');
   if(!escolaNome) return false;
 
@@ -244,38 +248,63 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
 
   try{
     var chaveEscola = normalizarNomeEscola(escolaNome);
+    var rows = [];
 
-    // Primeiro tenta sem diferenciar maiúsculas/minúsculas.
-    var rows = await sbRequest(
+    // Busca candidatos pelo nome da escola. Se houver registros duplicados,
+    // escolhemos aquele que realmente contém o usuário que está tentando entrar.
+    rows = await sbRequest(
       'ls_app_data',
       'GET',
-      'select=*&escola=ilike.' + encodeURIComponent(escolaNome) + '&limit=20'
+      'select=*&escola=ilike.' + encodeURIComponent(escolaNome) + '&limit=100'
     );
 
-    var row = (rows || []).find(function(r){
-      return normalizarNomeEscola(r.escola) === chaveEscola;
-    }) || null;
+    var todas = rows || [];
 
-    // Se houver diferença de acentos, procura entre as escolas existentes.
-    if(!row){
-      var todas = await sbRequest(
+    // Se acentos/variações impedirem a busca, consulta as escolas existentes.
+    if(!todas.length){
+      todas = await sbRequest(
         'ls_app_data',
         'GET',
         'select=*&limit=1000'
-      );
+      ) || [];
+    }
 
-      row = (todas || []).find(function(r){
-        return normalizarNomeEscola(r.escola) === chaveEscola;
+    var candidatos = todas.filter(function(r){
+      return normalizarNomeEscola(r.escola) === chaveEscola;
+    });
+
+    var row = null;
+
+    if(usuarioBusca && usuarioBusca.usuario){
+      var buscaUsuario = String(usuarioBusca.usuario).trim().toLowerCase();
+      var buscaSenha = usuarioBusca.senha !== undefined && usuarioBusca.senha !== null
+        ? String(usuarioBusca.senha) : '';
+
+      row = candidatos.find(function(r){
+        var lista = normalizarUsuarios(r.usuarios);
+        return lista.some(function(u){
+          return String(u.usuario || '').trim().toLowerCase() === buscaUsuario &&
+                 String(u.senha !== undefined && u.senha !== null ? u.senha : '') === buscaSenha &&
+                 (!usuarioBusca.perfil || u.perfil === usuarioBusca.perfil);
+        });
       }) || null;
     }
 
+    // Para operações que não estão procurando um usuário específico,
+    // usa o primeiro registro da escola.
+    if(!row && !usuarioBusca){
+      row = candidatos[0] || null;
+    }
+
     if(row){
-      // Usa o nome que já existe no servidor.
+      escolaIdBanco = row.id || null;
       escolaBanco = String(row.escola || escolaNome).trim();
       usarEscola(escolaBanco);
 
       usuarios = normalizarUsuarios(row.usuarios);
-      normalizarDb(row.db);
+      // IMPORTANTE: dados de uma escola existente nunca recebem os
+      // equipamentos/materiais de demonstração como fallback.
+      normalizarDb(row.db, false);
 
       localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
       localStorage.setItem(K, JSON.stringify(db));
@@ -284,41 +313,57 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
       return true;
     }
 
-    // Escola realmente nova: não copia usuários de outra escola.
-    escolaBanco = escolaNome;
-    usarEscola(escolaBanco);
+    // Se estamos apenas fazendo login, NÃO criar uma escola nova.
+    if(criarSeNaoExistir === false){
+      onlineReady = false;
+      return false;
+    }
 
-    var cache = JSON.parse(localStorage.getItem(K) || 'null');
-    normalizarDb(cache || dadosIniciais());
+    // Escola realmente nova: começa vazia, sem equipamentos de demonstração.
+    escolaBanco = escolaNome;
+    escolaIdBanco = null;
+    usarEscola(escolaBanco);
+    normalizarDb({
+      materiais: [],
+      equip: [],
+      emp: [],
+      hist: []
+    }, false);
 
     usuarios = normalizarUsuarios(
       JSON.parse(localStorage.getItem(AUTH_KEY) || '[]')
     );
 
-    if(criarSeNaoExistir !== false){
-      await sbRequest(
-        'ls_app_data',
-        'POST',
-        '',
-        {
-          escola: escolaBanco,
-          usuarios: usuarios,
-          db: db
-        },
-        {'Prefer':'return=minimal'}
-      );
+    var novaLinha = await sbRequest(
+      'ls_app_data',
+      'POST',
+      '',
+      {
+        escola: escolaBanco,
+        usuarios: usuarios,
+        db: db
+      },
+      {'Prefer':'return=representation'}
+    );
 
-      // Confirma que a escola realmente ficou disponível no servidor.
-      var confirmacaoNovaEscola = await sbRequest(
-        'ls_app_data',
-        'GET',
-        'select=escola&escola=eq.' + encodeURIComponent(escolaBanco) + '&limit=1'
-      );
-
-      if(!confirmacaoNovaEscola || !confirmacaoNovaEscola.length){
-        throw new Error('A escola não foi confirmada no servidor.');
-      }
+    if(!novaLinha || !novaLinha.length){
+      throw new Error('A escola não foi confirmada no servidor.');
     }
+
+    escolaIdBanco = novaLinha[0].id || null;
+
+    // Confirma que a escola realmente ficou disponível no servidor.
+    var confirmacaoNovaEscola = await sbRequest(
+      'ls_app_data',
+      'GET',
+      'select=id,escola&escola=eq.' + encodeURIComponent(escolaBanco) + '&limit=1'
+    );
+
+    if(!confirmacaoNovaEscola || !confirmacaoNovaEscola.length){
+      throw new Error('A escola não foi confirmada no servidor.');
+    }
+
+    escolaIdBanco = confirmacaoNovaEscola[0].id || escolaIdBanco;
 
     localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
     localStorage.setItem(K, JSON.stringify(db));
@@ -328,17 +373,14 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
 
   }catch(err){
     onlineReady = false;
-
     console.error('Erro ao carregar Supabase:', err);
     notify('Não foi possível sincronizar com o banco online. Tente novamente.', 'error');
     return false;
   }
 }
-
 async function salvarDadosOnline(){
   if(!onlineReady || !(escolaBanco || escola)) return false;
 
-  // Espera uma gravação anterior em vez de declarar a nova como falha.
   while(onlineSaving){
     await new Promise(function(resolve){ setTimeout(resolve, 50); });
   }
@@ -347,11 +389,14 @@ async function salvarDadosOnline(){
 
   try{
     var escolaParaSalvar = escolaBanco || escola;
+    var filtro = escolaIdBanco
+      ? 'id=eq.' + encodeURIComponent(escolaIdBanco)
+      : 'escola=eq.' + encodeURIComponent(escolaParaSalvar);
 
-    await sbRequest(
+    var alteracao = await sbRequest(
       'ls_app_data',
       'PATCH',
-      'escola=eq.' + encodeURIComponent(escolaParaSalvar),
+      filtro,
       {
         usuarios: usuarios,
         db: db,
@@ -360,21 +405,24 @@ async function salvarDadosOnline(){
       {'Prefer':'return=minimal'}
     );
 
-    // Confirma lendo novamente a escola. Isso evita mostrar
-    // "cadastro concluído" quando o servidor não salvou a alteração.
     var confirmacao = await sbRequest(
       'ls_app_data',
       'GET',
-      'select=usuarios,db,escola&escola=eq.' + encodeURIComponent(escolaParaSalvar) + '&limit=1'
+      'select=id,usuarios,db,escola&' + filtro + '&limit=1'
     );
 
     if(!confirmacao || !confirmacao.length){
       throw new Error('A alteração não foi confirmada no servidor.');
     }
 
-    // Mantém a cópia local alinhada ao que está no servidor.
+    escolaIdBanco = confirmacao[0].id || escolaIdBanco;
+    escolaBanco = String(confirmacao[0].escola || escolaParaSalvar).trim();
+
     usuarios = normalizarUsuarios(confirmacao[0].usuarios);
-    normalizarDb(confirmacao[0].db);
+    normalizarDb(confirmacao[0].db, false);
+
+    localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
+    localStorage.setItem(K, JSON.stringify(db));
 
     return true;
 
@@ -387,7 +435,6 @@ async function salvarDadosOnline(){
     onlineSaving = false;
   }
 }
-
 function save(){
   localStorage.setItem(K, JSON.stringify(db));
   localStorage.setItem(AUTH_KEY, JSON.stringify(usuarios));
@@ -821,7 +868,7 @@ async function login(tipo){
 
  if(!e || !u || !s){msg('Preencha escola, usuário e senha.', 'error');return false;}
 
- var carregou = await carregarDadosOnline(e, true);
+ var carregou = await carregarDadosOnline(e, false, {usuario:u, senha:s, perfil:tipo});
  if(!carregou){
    msg('Não foi possível consultar o banco online. Tente novamente.', 'error');
    return false;
