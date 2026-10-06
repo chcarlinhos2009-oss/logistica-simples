@@ -864,6 +864,12 @@ function abrirLogin(tipo){
       '</label>' +
       '<button type="submit" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm hover:opacity-90">Entrar</button>' +
       '<button type="button" onclick="telaInicial()" class="w-full mt-3 text-gray-400 font-semibold text-xs py-2">← Voltar</button>' +
+      '<div class="mt-3 pt-3 border-t dark:border-gray-700 text-center">' +
+        '<button type="button" onclick="abrirSuporte()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-brandDarkBlue dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 font-bold text-xs transition">' +
+          '<i class="fas fa-comments"></i> Precisa de ajuda?' +
+        '</button>' +
+        '<p class="text-[10px] text-gray-400 mt-2">Esqueceu a senha ou precisa falar com o suporte?</p>' +
+      '</div>' +
       '<div class="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-gray-700 text-blue-800 dark:text-blue-300 text-xs text-center">' +
         '<i class="fas fa-shield-halved mr-1"></i><b>Sessão protegida</b> · encerramento automático após 30 minutos de inatividade' +
       '</div>' +
@@ -911,6 +917,8 @@ async function login(tipo){
  perfil = x.perfil;
  usuarioAtual = Object.assign({}, x);
  delete usuarioAtual.senha;
+ var fabSuporte = document.getElementById('support-fab');
+ if(fabSuporte) fabSuporte.classList.remove('hidden');
  alertasLidos = false;
  salvarSessaoSegura(usuarioAtual);
  salvarUsuariosLocalSeguro();
@@ -2098,6 +2106,8 @@ abrirLogin = function(tipo){
  _abrirLogin(tipo);
  var f = document.getElementById('loginForm');
  if(f) f.setAttribute('data-tipo', tipo);
+ var fab = document.getElementById('support-fab');
+ if(fab) fab.classList.add('hidden');
  bindForms();
 };
 
