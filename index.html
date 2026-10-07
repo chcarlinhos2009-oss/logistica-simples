@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script>
         tailwind.config = {
@@ -93,7 +94,6 @@
     <button id="support-fab" type="button" onclick="abrirSuporte()" aria-label="Abrir Central de Ajuda" class="fixed bottom-5 right-5 z-[60] w-14 h-14 rounded-full bg-brandDarkBlue text-white shadow-2xl hover:scale-105 active:scale-95 transition flex items-center justify-center border-4 border-white dark:border-gray-900">
       <i class="fas fa-comments text-xl"></i>
       <span id="support-badge" class="hidden absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-extrabold items-center justify-center border-2 border-white dark:border-gray-900">0</span>
-      <span id="support-new-dot" class="hidden absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-amber-400 border-2 border-white dark:border-gray-900"></span>
     </button>
 
     <div id="support-modal" class="fixed inset-0 z-[70] hidden bg-black/60 backdrop-blur-sm p-3 sm:p-5 flex items-end sm:items-center justify-center">
@@ -127,6 +127,8 @@ var K = 'ls_pro';
 var AUTH_KEY = 'ls_auth';
 var onlineReady = false;
 var onlineSaving = false;
+var supabaseRealtime = null;
+var suporteRealtimeChannel = null;
 
 /* =========================================================
    V7 — SEGURANÇA E SESSÃO
@@ -2128,9 +2130,7 @@ var SUPORTE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/suporte';
 var suporteAtendimentoAtual = null;
 var suportePollTimer = null;
 var suporteUltimaContagem = 0;
-var suporteNotificacoesInicializadas = false;
-var suporteMensagensVistas = {};
-var suporteNotificacoesPendentes = 0;
+var suporteRealtimeAtivo = false;
 
 function suporteIdentidade(){
   var sessao = lerSessaoSegura();
@@ -2162,33 +2162,12 @@ async function suporteRequest(body){
   return data;
 }
 
-function suporteNotificar(titulo, texto){
-  var toast = document.createElement('div');
-  toast.className = 'fixed top-4 right-4 z-[90] max-w-sm w-[calc(100%-2rem)] sm:w-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-2xl rounded-2xl p-4 flex gap-3 items-start';
-  toast.innerHTML = '<div class="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-brandDarkBlue dark:text-blue-300 flex items-center justify-center shrink-0"><i class="fas fa-bell"></i></div><div class="min-w-0"><strong class="block text-xs font-extrabold">'+esc(titulo)+'</strong><span class="block text-[11px] text-gray-500 dark:text-gray-300 mt-1">'+esc(texto)+'</span></div><button type="button" class="ml-auto text-gray-400 hover:text-gray-700 dark:hover:text-white"><i class="fas fa-xmark"></i></button>';
-  toast.querySelector('button').onclick=function(){toast.remove();};
-  document.body.appendChild(toast);
-  setTimeout(function(){ if(toast.parentNode) toast.remove(); }, 6500);
-  try{ if('Notification' in window && Notification.permission === 'granted') new Notification(titulo,{body:texto}); }catch(e){}
-}
-
-function atualizarBadgeSuporte(qtd){
-  var badge=document.getElementById('support-badge');
-  var dot=document.getElementById('support-new-dot');
-  if(badge){ if(qtd>0){ badge.textContent=String(qtd); badge.classList.remove('hidden'); badge.classList.add('flex'); } else { badge.classList.add('hidden'); badge.classList.remove('flex'); } }
-  if(dot){ if(qtd>0) dot.classList.remove('hidden'); else dot.classList.add('hidden'); }
-}
-
-async function ativarNotificacoesSuporte(){
-  if(!('Notification' in window)){ msg('Seu navegador não oferece notificações.', 'warning'); return; }
-  try{ var p=await Notification.requestPermission(); if(p==='granted') msg('Notificações do suporte ativadas.', 'success'); else msg('Notificações do navegador não foram autorizadas.', 'warning'); }catch(e){ msg('Não foi possível ativar as notificações.', 'error'); }
-}
-
 function abrirSuporte(){
   var modal = document.getElementById('support-modal');
   if(!modal) return;
   modal.classList.remove('hidden');
   renderSuporteInicio();
+  iniciarRealtimeSuporte();
 }
 
 function fecharSuporte(){
@@ -2196,6 +2175,50 @@ function fecharSuporte(){
   if(modal) modal.classList.add('hidden');
   suporteAtendimentoAtual = null;
   if(suportePollTimer){ clearInterval(suportePollTimer); suportePollTimer = null; }
+  pararRealtimeSuporte();
+}
+
+function pararRealtimeSuporte(){
+  if(suporteRealtimeChannel && supabaseRealtime){
+    try{ supabaseRealtime.removeChannel(suporteRealtimeChannel); }catch(e){}
+  }
+  suporteRealtimeChannel = null;
+  suporteRealtimeAtivo = false;
+}
+
+function iniciarRealtimeSuporte(){
+  var id = suporteIdentidade();
+  if(!id.escola || !id.usuario || !window.supabase) return;
+  try{
+    if(!supabaseRealtime){
+      supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    }
+    pararRealtimeSuporte();
+    suporteRealtimeChannel = supabaseRealtime
+      .channel('ls-suporte-' + String(id.escola).toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + String(id.usuario).toLowerCase().replace(/[^a-z0-9]+/g,'-'))
+      .on('postgres_changes', {event:'INSERT', schema:'public', table:'mensagens_atendimento'}, function(payload){
+        var n = payload && payload.new ? payload.new : {};
+        if(!suporteAtendimentoAtual || Number(n.atendimento_id) !== Number(suporteAtendimentoAtual.id)) return;
+        if(n.remetente_tipo !== 'suporte') return;
+        abrirAtendimento(suporteAtendimentoAtual.id);
+        notify('Nova resposta do suporte', 'A conversa foi atualizada automaticamente.', 'success');
+      })
+      .on('postgres_changes', {event:'UPDATE', schema:'public', table:'atendimentos'}, function(payload){
+        var n = payload && payload.new ? payload.new : {};
+        if(suporteAtendimentoAtual && Number(n.id) === Number(suporteAtendimentoAtual.id)){
+          suporteAtendimentoAtual = Object.assign({}, suporteAtendimentoAtual, n);
+          abrirAtendimento(suporteAtendimentoAtual.id);
+        }
+        if(!document.getElementById('support-modal').classList.contains('hidden')) listarMeusAtendimentos();
+      })
+      .subscribe(function(status){
+        suporteRealtimeAtivo = status === 'SUBSCRIBED';
+        if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.warn('Realtime do suporte indisponível; polling permanece como fallback.');
+      });
+  }catch(e){
+    suporteRealtimeAtivo = false;
+    console.warn('Não foi possível iniciar Realtime do suporte:', e);
+  }
 }
 
 function suporteCategoria(categoria){
@@ -2227,7 +2250,6 @@ function renderSuporteInicio(){
 
   body.innerHTML = '<div class="space-y-2">'+lista+'</div>' +
     '<div class="mt-4 pt-4 border-t dark:border-gray-700">' +
-      '<button type="button" onclick="ativarNotificacoesSuporte()" class="w-full py-2.5 rounded-xl border dark:border-gray-700 text-gray-500 dark:text-gray-300 text-[10px] font-bold mb-2"><i class="fas fa-bell mr-2"></i>Ativar notificações</button>' +
       '<button type="button" onclick="listarMeusAtendimentos()" class="w-full py-3 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold"><i class="fas fa-inbox mr-2"></i>Meus atendimentos</button>' +
     '</div>';
 }
@@ -2331,6 +2353,7 @@ async function listarMeusAtendimentos(){
 
 async function abrirAtendimento(id){
   var ident = suporteIdentidade();
+  iniciarRealtimeSuporte();
   var body = document.getElementById('support-body');
   if(!body) return;
   body.innerHTML = '<div class="text-center py-8 text-xs text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Carregando conversa...</div>';
@@ -2340,9 +2363,6 @@ async function abrirAtendimento(id){
     if(!atendimento) throw new Error('Atendimento não encontrado.');
     var data = await suporteRequest({acao:'listar_mensagens', atendimento_id:Number(id), escola:ident.escola, usuario:ident.usuario});
     suporteAtendimentoAtual = atendimento;
-    (data.mensagens || []).forEach(function(m){ if(m.remetente_tipo==='suporte') suporteMensagensVistas[m.id]=true; });
-    suporteNotificacoesPendentes = 0;
-    atualizarBadgeSuporte(0);
     renderSuporteConversa(atendimento, data.mensagens || []);
   }catch(e){
     console.error('Erro ao abrir atendimento:', e);
@@ -2395,32 +2415,27 @@ async function enviarMensagemAtendimento(){
 }
 
 function iniciarMonitorSuporte(){
+  iniciarRealtimeSuporte();
   if(suportePollTimer) clearInterval(suportePollTimer);
   suportePollTimer = setInterval(async function(){
     var id = suporteIdentidade();
     if(!id.escola || !id.usuario) return;
     try{
       var data = await suporteRequest({acao:'listar_atendimentos', escola:id.escola, usuario:id.usuario});
-      var lista = data.atendimentos || [];
-      lista.forEach(function(a){
-        var mid = a.ultima_mensagem_id;
-        if(a.ultima_mensagem_tipo === 'suporte' && mid && !suporteMensagensVistas[mid]){
-          if(suporteNotificacoesInicializadas){
-            suporteNotificacoesPendentes++;
-            suporteNotificar('Nova resposta do suporte', 'Seu atendimento #'+a.id+' recebeu uma nova mensagem.');
-          }
-          suporteMensagensVistas[mid] = true;
-        }
-      });
-      atualizarBadgeSuporte(suporteNotificacoesPendentes);
-      suporteNotificacoesInicializadas = true;
+      var total = (data.atendimentos || []).filter(function(a){ return a.status === 'em_atendimento'; }).length;
+      var badge = document.getElementById('support-badge');
+      if(badge){
+        if(total > 0){ badge.textContent=String(total); badge.classList.remove('hidden'); badge.classList.add('flex'); }
+        else { badge.classList.add('hidden'); badge.classList.remove('flex'); }
+      }
     }catch(e){ /* suporte indisponível não deve quebrar o sistema principal */ }
-  }, 15000);
+  }, 30000);
 }
 
 iniciarMonitorSuporte();
 
 // Inicialização: valida a sessão protegida antes de abrir o painel.
+try{ if(window.supabase) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
 inicializarApp();
 
 </script>
