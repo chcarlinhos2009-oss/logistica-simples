@@ -2127,6 +2127,7 @@ cadastro = function(){
    - Não grava mensagens de suporte no localStorage.
    ========================================================= */
 var SUPORTE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/suporte';
+var SUPORTE_IDENTIDADE_KEY = 'ls_suporte_identidade_v1';
 var suporteAtendimentoAtual = null;
 var suportePollTimer = null;
 var suporteUltimaContagem = 0;
@@ -2135,21 +2136,52 @@ var suporteRealtimeAtivo = false;
 function suporteIdentidade(){
   var sessao = lerSessaoSegura();
   var u = usuarioAtual || sessao || {};
+  var salvo = {};
+  try{ salvo = JSON.parse(localStorage.getItem(SUPORTE_IDENTIDADE_KEY) || '{}') || {}; }catch(e){ salvo = {}; }
   return {
-    escola: String((u.escola || escolaAtual || escola || '')).trim(),
-    usuario: String((u.usuario || '')).trim(),
-    email: String((u.email || '')).trim(),
-    perfil: String((u.perfil || perfil || '')).trim()
+    escola: String((u.escola || salvo.escola || escolaAtual || escola || '')).trim(),
+    usuario: String((u.usuario || salvo.usuario || '')).trim(),
+    email: String((u.email || salvo.email || '')).trim(),
+    perfil: String((u.perfil || salvo.perfil || perfil || '')).trim(),
+    atendimentoId: Number(salvo.atendimentoId || 0) || null
   };
 }
 
+function salvarIdentidadeSuporte(atendimento, identidade){
+  try{
+    var atual = identidade || suporteIdentidade();
+    localStorage.setItem(SUPORTE_IDENTIDADE_KEY, JSON.stringify({
+      escola: String(atual.escola || '').trim(),
+      usuario: String(atual.usuario || '').trim(),
+      email: String(atual.email || '').trim(),
+      perfil: String(atual.perfil || '').trim(),
+      atendimentoId: atendimento && atendimento.id ? Number(atendimento.id) : (atual.atendimentoId || null)
+    }));
+  }catch(e){ console.warn('Não foi possível guardar a identificação do suporte.', e); }
+}
+
+async function garantirSessaoRealtimeSuporte(){
+  if(!window.supabase) throw new Error('Supabase não carregado.');
+  if(!supabaseRealtime) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  var sessaoResp = await supabaseRealtime.auth.getSession();
+  var sessao = sessaoResp && sessaoResp.data ? sessaoResp.data.session : null;
+  if(!sessao){
+    var anon = await supabaseRealtime.auth.signInAnonymously();
+    if(anon.error) throw anon.error;
+    sessao = anon.data && anon.data.session;
+  }
+  if(!sessao) throw new Error('Não foi possível iniciar a sessão anônima do suporte.');
+  return sessao;
+}
+
 async function suporteRequest(body){
+  var sessao = await garantirSessaoRealtimeSuporte();
   var resp = await fetch(SUPORTE_FUNCTION_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_KEY
+      'Authorization': 'Bearer ' + sessao.access_token
     },
     body: JSON.stringify(body)
   });
@@ -2186,16 +2218,14 @@ function pararRealtimeSuporte(){
   suporteRealtimeAtivo = false;
 }
 
-function iniciarRealtimeSuporte(){
-  var id = suporteIdentidade();
-  if(!id.escola || !id.usuario || !window.supabase) return;
+async function iniciarRealtimeSuporte(){
+  if(!window.supabase) return;
   try{
-    if(!supabaseRealtime){
-      supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    }
+    await garantirSessaoRealtimeSuporte();
+    var id = suporteIdentidade();
     pararRealtimeSuporte();
     suporteRealtimeChannel = supabaseRealtime
-      .channel('ls-suporte-' + String(id.escola).toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + String(id.usuario).toLowerCase().replace(/[^a-z0-9]+/g,'-'))
+      .channel('ls-suporte-anonimo')
       .on('postgres_changes', {event:'INSERT', schema:'public', table:'mensagens_atendimento'}, function(payload){
         var n = payload && payload.new ? payload.new : {};
         if(!suporteAtendimentoAtual || Number(n.atendimento_id) !== Number(suporteAtendimentoAtual.id)) return;
@@ -2205,11 +2235,14 @@ function iniciarRealtimeSuporte(){
       })
       .on('postgres_changes', {event:'UPDATE', schema:'public', table:'atendimentos'}, function(payload){
         var n = payload && payload.new ? payload.new : {};
-        if(suporteAtendimentoAtual && Number(n.id) === Number(suporteAtendimentoAtual.id)){
+        var atual = suporteAtendimentoAtual && Number(suporteAtendimentoAtual.id) === Number(n.id);
+        var salvo = id.atendimentoId && Number(id.atendimentoId) === Number(n.id);
+        if(atual){
           suporteAtendimentoAtual = Object.assign({}, suporteAtendimentoAtual, n);
           abrirAtendimento(suporteAtendimentoAtual.id);
+        }else if(salvo && !document.getElementById('support-modal').classList.contains('hidden')){
+          listarMeusAtendimentos();
         }
-        if(!document.getElementById('support-modal').classList.contains('hidden')) listarMeusAtendimentos();
       })
       .subscribe(function(status){
         suporteRealtimeAtivo = status === 'SUBSCRIBED';
@@ -2263,7 +2296,8 @@ function renderSuporteFormulario(categoria){
     estoque:'Problema com estoque', equipamento:'Problema com equipamento', emprestimo:'Problema com empréstimo'
   };
   var logado = !!id.usuario;
-  var precisaIdentificacao = !logado || categoria === 'recuperacao';
+  var temIdentidadeSuporte = !!(id.escola && id.usuario);
+  var precisaIdentificacao = !temIdentidadeSuporte || categoria === 'recuperacao';
 
   body.innerHTML =
     '<button type="button" onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 hover:text-brandDarkBlue mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button>' +
@@ -2312,6 +2346,8 @@ async function enviarNovoAtendimento(categoria){
     });
     if(!data.atendimento) throw new Error('Atendimento não retornado.');
     suporteAtendimentoAtual = data.atendimento;
+    salvarIdentidadeSuporte(data.atendimento, {escola:escolaV, usuario:usuarioV, email:emailV, perfil:perfilV});
+    await iniciarRealtimeSuporte();
     renderSuporteConversa(data.atendimento, [{
       remetente:usuarioV, remetente_tipo:'usuario', mensagem:mensagemV, created_at:new Date().toISOString()
     }]);
@@ -2329,13 +2365,14 @@ async function listarMeusAtendimentos(){
   var body = document.getElementById('support-body');
   if(!body) return;
   if(!id.escola || !id.usuario){
-    body.innerHTML = '<div class="text-center py-8"><div class="text-gray-400 text-sm mb-2"><i class="fas fa-user-lock text-2xl"></i></div><p class="text-xs text-gray-500">Faça login para visualizar seus atendimentos.</p><button onclick="renderSuporteInicio()" class="mt-4 text-xs font-bold text-brandDarkBlue">Voltar</button></div>';
+    body.innerHTML = '<div class="text-center py-8"><div class="text-gray-400 text-sm mb-2"><i class="fas fa-user-lock text-2xl"></i></div><p class="text-xs text-gray-500">Informe sua escola e usuário no primeiro atendimento para criar sua identificação de suporte.</p><button onclick="renderSuporteInicio()" class="mt-4 text-xs font-bold text-brandDarkBlue">Voltar</button></div>';
     return;
   }
   body.innerHTML = '<div class="text-center py-8 text-xs text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Carregando atendimentos...</div>';
   try{
     var data = await suporteRequest({acao:'listar_atendimentos', escola:id.escola, usuario:id.usuario});
     var lista = data.atendimentos || [];
+    if(lista.length) salvarIdentidadeSuporte(lista[0], id);
     if(!lista.length){
       body.innerHTML = '<button onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button><div class="text-center py-8"><i class="fas fa-inbox text-3xl text-gray-300"></i><p class="text-xs text-gray-400 mt-2">Você ainda não possui atendimentos.</p></div>';
       return;
@@ -2363,6 +2400,7 @@ async function abrirAtendimento(id){
     if(!atendimento) throw new Error('Atendimento não encontrado.');
     var data = await suporteRequest({acao:'listar_mensagens', atendimento_id:Number(id), escola:ident.escola, usuario:ident.usuario});
     suporteAtendimentoAtual = atendimento;
+    salvarIdentidadeSuporte(atendimento, ident);
     renderSuporteConversa(atendimento, data.mensagens || []);
   }catch(e){
     console.error('Erro ao abrir atendimento:', e);
@@ -2434,8 +2472,9 @@ function iniciarMonitorSuporte(){
 
 iniciarMonitorSuporte();
 
-// Inicialização: valida a sessão protegida antes de abrir o painel.
+// O suporte possui uma sessão anônima própria para permitir Realtime mesmo antes do login normal.
 try{ if(window.supabase) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
+garantirSessaoRealtimeSuporte().then(function(){ iniciarRealtimeSuporte(); }).catch(function(e){ console.warn('Sessão anônima do suporte não iniciada:', e); });
 inicializarApp();
 
 </script>
