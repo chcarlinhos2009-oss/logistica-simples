@@ -928,6 +928,9 @@ async function login(tipo){
  if(lembrar) localStorage.setItem('ls_escola', e); else localStorage.removeItem('ls_escola');
  notify('Login realizado com sucesso!', 'success');
  dashboard();
+ if(x.senhaTemporaria){
+   setTimeout(function(){ abrirAlteracaoSenha(true); }, 250);
+ }
  return false;
 }
 
@@ -1076,6 +1079,67 @@ function verAlertas(){
   alertas();
 }
 
+function abrirAlteracaoSenha(obrigatoria){
+  var atual = usuarioAtual || lerSessaoSegura() || {};
+  if(!atual.usuario || !atual.escola){ msg('Não foi possível identificar sua conta.', 'error'); return; }
+  var modal = document.getElementById('senha-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'senha-modal';
+    modal.className = 'fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm p-3 sm:p-5 flex items-center justify-center';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = '<div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border dark:border-gray-700 overflow-hidden">' +
+    '<div class="p-5 border-b dark:border-gray-700 flex items-center gap-3">' +
+      '<div class="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-brandDarkBlue dark:text-blue-300 flex items-center justify-center"><i class="fas fa-key"></i></div>' +
+      '<div><h2 class="font-extrabold text-base">' + (obrigatoria ? 'Atualize sua senha' : 'Alterar senha') + '</h2><p class="text-[11px] text-gray-400 mt-0.5">Conta: @' + esc(atual.usuario) + '</p></div>' +
+    '</div>' +
+    (obrigatoria ? '<div class="mx-5 mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs"><i class="fas fa-triangle-exclamation mr-1"></i> Sua senha atual é temporária. Por segurança, crie uma nova senha para continuar.</div>' : '') +
+    '<form id="form-alterar-senha" class="p-5 space-y-3">' +
+      '<div><label class="label">Senha atual</label><input id="senha-atual-conta" type="password" class="input" autocomplete="current-password" required></div>' +
+      '<div><label class="label">Nova senha</label><input id="senha-nova-conta" type="password" class="input" minlength="6" autocomplete="new-password" required><p class="text-[10px] text-gray-400 mt-1">Use pelo menos 6 caracteres.</p></div>' +
+      '<div><label class="label">Confirmar nova senha</label><input id="senha-confirma-conta" type="password" class="input" minlength="6" autocomplete="new-password" required></div>' +
+      '<div class="flex gap-2 pt-2">' +
+        (!obrigatoria ? '<button type="button" onclick="fecharAlteracaoSenha()" class="flex-1 px-4 py-3 rounded-xl border font-bold text-xs text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Cancelar</button>' : '') +
+        '<button id="btn-alterar-senha-conta" type="submit" class="' + (obrigatoria ? 'w-full' : 'flex-1') + ' px-4 py-3 rounded-xl bg-brandDarkBlue text-white font-bold text-xs hover:opacity-90"><i class="fas fa-check mr-1"></i> Alterar senha</button>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+  modal.classList.remove('hidden');
+  document.getElementById('form-alterar-senha').onsubmit = async function(ev){
+    ev.preventDefault();
+    var atualSenha = document.getElementById('senha-atual-conta').value;
+    var nova = document.getElementById('senha-nova-conta').value;
+    var confirma = document.getElementById('senha-confirma-conta').value;
+    if(nova.length < 6) return msg('A nova senha deve ter pelo menos 6 caracteres.', 'error');
+    if(nova !== confirma) return msg('A confirmação da nova senha não confere.', 'error');
+    if(nova === atualSenha) return msg('A nova senha deve ser diferente da senha atual.', 'error');
+    var btn = document.getElementById('btn-alterar-senha-conta');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Salvando...';
+    try{
+      await suporteRequest({acao:'alterar_propria_senha', escola:String(atual.escola || escola || '').trim(), usuario:String(atual.usuario || '').trim(), senha_atual:atualSenha, nova_senha:nova});
+      await carregarDadosOnline(String(atual.escola || escola || '').trim(), false);
+      var atualizado = usuarios.find(function(u){ return String(u.usuario || '').toLowerCase() === String(atual.usuario || '').toLowerCase(); });
+      if(atualizado){
+        usuarioAtual = Object.assign({}, atualizado); delete usuarioAtual.senha;
+        salvarSessaoSegura(usuarioAtual);
+        salvarUsuariosLocalSeguro();
+      }
+      fecharAlteracaoSenha();
+      notify('Senha alterada com sucesso!', 'success');
+      if(typeof dashboard === 'function') dashboard();
+    }catch(e){
+      console.error(e); msg(e.message || 'Não foi possível alterar a senha.', 'error');
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-check mr-1"></i> Alterar senha';
+    }
+  };
+}
+
+function fecharAlteracaoSenha(){
+  var modal = document.getElementById('senha-modal');
+  if(modal) modal.remove();
+}
+
 function dashboard(){
   var esCoord = perfil === 'Coordenador';
   var materiais = Array.isArray(db.materiais) ? db.materiais : [];
@@ -1152,6 +1216,7 @@ function dashboard(){
       tile('chart-line','Relatórios','Imprimir e listar empréstimos','relatorios') +
       (esCoord ? tile('shield-halved','Backup','Salvar e restaurar dados','backupTela') : '') +
       (esCoord ? tile('users','Usuários','Gerenciar contas de acesso','usuariosTela') : '') +
+      tile('key','Minha conta','Alterar sua senha de acesso','abrirAlteracaoSenha') +
     '</div>' +
     '<div class="mt-8 pt-4 border-t dark:border-gray-800 flex justify-between items-center text-xs text-gray-400"><span>Operador: <strong class="text-gray-600 dark:text-gray-300">' + esc(perfil) + '</strong></span><button onclick="logout()" class="text-red-500 font-bold hover:underline">Sair do Sistema</button></div>'
   );
