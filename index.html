@@ -1567,8 +1567,11 @@ function emprestimos(){
       '<td class="p-4">' + tipoBadge + '</td>' +
       '<td class="p-4 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
       '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
-      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) + '</td>' +
-      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) +
+        (l.observacao ? '<div class="text-[11px] text-gray-400 mt-1">' + esc(l.observacao) + '</div>' : '') + '</td>' +
+      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) +
+        '<div class="mt-1">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
+        '<div>Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div></td>' +
       '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 hover:bg-green-100 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
     '</tr>';
   }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum item emprestado no momento.</td></tr>';
@@ -1587,10 +1590,11 @@ function emprestimos(){
         '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold text-xs whitespace-nowrap">' + (l.qtd || 1) + ' un.</span>' +
       '</div>' +
       '<div class="text-brandGreen font-semibold">Por: ' + esc(l.pessoa) + '</div>' +
-      '<div class="text-gray-500 flex justify-between gap-2">' +
-        '<span>Destino: ' + esc(l.destino) + '</span>' +
-        '<span class="text-[10px] text-gray-400 whitespace-nowrap">' + esc(l.data) + '</span>' +
-      '</div>' +
+      '<div class="text-gray-500">Destino: ' + esc(l.destino) + '</div>' +
+      '<div class="text-[10px] text-gray-400">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
+      '<div class="text-[10px] text-gray-400">Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div>' +
+      (l.observacao ? '<div class="text-gray-500 mt-1">Observação: ' + esc(l.observacao) + '</div>' : '') +
+      '<div class="text-[10px] text-gray-400">Registrado em: ' + esc(l.data) + '</div>' +
       '<button onclick="devolver(' + l.id + ')" class="w-full bg-brandGreen hover:opacity-90 text-white font-bold py-2 rounded-xl text-center mt-2">Devolver</button>' +
     '</div>';
   }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum item emprestado.</div>';
@@ -1623,6 +1627,18 @@ function emprestimos(){
           '<label class="label">Sala / setor / destino</label>' +
           '<input id="ld" class="input" placeholder="Ex.: Sala 5">' +
         '</div>' +
+        '<div>' +
+          '<label class="label">Data prevista para retirada</label>' +
+          '<input id="ldataRetirada" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Data prevista para devolução</label>' +
+          '<input id="ldataDevolucao" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
+        '</div>' +
+        '<div class="sm:col-span-2">' +
+          '<label class="label">Observação (opcional)</label>' +
+          '<textarea id="lobs" class="input" rows="2" placeholder="Finalidade ou informações adicionais"></textarea>' +
+        '</div>' +
       '</div>' +
       '<button onclick="addEmp()" class="bg-brandDarkBlue hover:opacity-90 text-white p-3.5 rounded-xl font-bold mt-4 w-full sm:w-auto px-6 text-xs sm:text-sm">' +
         '<i class="fas fa-hand-holding mr-1.5"></i>Confirmar Retirada' +
@@ -1637,7 +1653,7 @@ function emprestimos(){
         '<table class="w-full text-left">' +
           '<thead>' +
             '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
-              '<th class="p-4">Item</th><th class="p-4">Tipo</th><th class="p-4">Qtd.</th><th class="p-4">Retirado por</th><th class="p-4">Destino</th><th class="p-4">Data</th><th class="p-4 text-right">Ação</th>' +
+              '<th class="p-4">Item</th><th class="p-4">Tipo</th><th class="p-4">Qtd.</th><th class="p-4">Retirado por</th><th class="p-4">Destino / observação</th><th class="p-4">Datas</th><th class="p-4 text-right">Ação</th>' +
             '</tr>' +
           '</thead>' +
           '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
@@ -1650,14 +1666,22 @@ function emprestimos(){
 
 function addEmp(){
   var le = document.getElementById('le'), lq = document.getElementById('lq'), lp = document.getElementById('lp'), ld = document.getElementById('ld');
+  var retiradaEl = document.getElementById('ldataRetirada');
+  var devolucaoEl = document.getElementById('ldataDevolucao');
+  var obsEl = document.getElementById('lobs');
   var valor = le ? le.value : '';
   var q = Number(lq ? lq.value : 0);
   var pessoa = lp ? lp.value.trim() : '';
   var destino = ld ? ld.value.trim() : '';
+  var dataPrevistaRetirada = retiradaEl ? retiradaEl.value : '';
+  var dataPrevistaDevolucao = devolucaoEl ? devolucaoEl.value : '';
+  var observacao = obsEl ? obsEl.value.trim() : '';
 
   if(!valor) return msg('Selecione um material ou equipamento.', 'error');
   if(!q || q <= 0) return msg('Informe uma quantidade válida.', 'error');
   if(!pessoa || !destino) return msg('Preencha quem retirou e a sala/setor.', 'error');
+  if(!dataPrevistaRetirada || !dataPrevistaDevolucao) return msg('Informe as datas previstas de retirada e devolução.', 'error');
+  if(dataPrevistaDevolucao < dataPrevistaRetirada) return msg('A data prevista de devolução não pode ser anterior à retirada.', 'error');
 
   var partes = valor.split(':');
   var tipo = partes[0];
@@ -1695,6 +1719,9 @@ function addEmp(){
     pessoa: pessoa,
     destino: destino,
     data: data,
+    dataPrevistaRetirada: dataPrevistaRetirada,
+    dataPrevistaDevolucao: dataPrevistaDevolucao,
+    observacao: observacao,
     ativo: true,
     tipo: e ? 'Equipamento' : 'Material',
     cor: e ? (e.cor || '') : '',
