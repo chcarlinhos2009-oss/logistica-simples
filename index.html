@@ -125,6 +125,16 @@ var SUPABASE_KEY = 'sb_publishable_2pow_sr87FSuqs7kZMYnBg_RbE5Sk7C';
 var SUPABASE_REST = SUPABASE_URL + '/rest/v1';
 var K = 'ls_pro';
 var AUTH_KEY = 'ls_auth';
+function lerJSONSeguro(valor, padrao){
+  try {
+    if (valor === null || valor === undefined || valor === '') return padrao;
+    return JSON.parse(valor);
+  } catch (e) {
+    console.warn('Dados locais inválidos; usando valores padrão.', e);
+    return padrao;
+  }
+}
+
 var onlineReady = false;
 var onlineSaving = false;
 var supabaseRealtime = null;
@@ -357,14 +367,14 @@ function normalizarDb(obj){
   }
 }
 
-var usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+var usuarios = normalizarUsuarios(lerJSONSeguro(localStorage.getItem(AUTH_KEY), []));
 var userSessao = lerSessaoSegura();
 var usuarioAtual = userSessao ? userSessao : null;
 var escolaAtual = localStorage.getItem('ls_escola') || '';
 var alertasLidos = false;
 var db = null;
 
-normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
+normalizarDb(lerJSONSeguro(localStorage.getItem(K), null));
 salvarUsuariosLocalSeguro();
 
 function storageKey(escolaNome){
@@ -400,11 +410,12 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
       return true;
     }
 
-    // Primeira utilização desta escola: aproveita o cache local dessa escola,
-    // ou cria o ambiente inicial do protótipo.
-    var cache = JSON.parse(localStorage.getItem(K) || 'null');
-    normalizarDb(cache || dadosIniciais());
-    usuarios = normalizarUsuarios(JSON.parse(localStorage.getItem(AUTH_KEY) || '[]'));
+    // Primeira utilização desta escola: aproveita somente o cache próprio dela.
+    // Se ainda não houver dados, começa com o estoque vazio para não inserir
+    // materiais/equipamentos de exemplo nem reaproveitar dados de outra escola.
+    var cache = lerJSONSeguro(localStorage.getItem(K), null);
+    normalizarDb(cache || {materiais:[], equip:[], emp:[], hist:[]});
+    usuarios = normalizarUsuarios(lerJSONSeguro(localStorage.getItem(AUTH_KEY), []));
 
     if(criarSeNaoExistir !== false){
       await sbRequest('ls_app_data', 'POST', '', {
@@ -421,7 +432,7 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
   }catch(err){
     onlineReady = false;
     // Mantém o protótipo funcionando com o cache local se o banco estiver indisponível.
-    var cacheLocal = JSON.parse(localStorage.getItem(K) || 'null');
+    var cacheLocal = lerJSONSeguro(localStorage.getItem(K), null);
     if(cacheLocal) normalizarDb(cacheLocal);
     if(keyAnterior && keyAnterior !== K){
       // nada: o cache da escola já foi tentado acima
@@ -475,7 +486,7 @@ async function inicializarApp(){
   }
   if(escolaAtual){
     usarEscola(escolaAtual);
-    normalizarDb(JSON.parse(localStorage.getItem(K) || 'null'));
+    normalizarDb(lerJSONSeguro(localStorage.getItem(K), null));
   }
   telaInicial();
 }
@@ -498,12 +509,4 @@ function notify(texto, tipo) {
 
   var toast = document.createElement('div');
   toast.className = 'toast-enter pointer-events-auto flex items-center gap-3 p-4 rounded-2xl shadow-lg border text-xs font-semibold ' +
-    (tipo === 'error' ? 'bg-red-600 text-white border-red-700' :
-     tipo === 'warning' ? 'bg-amber-500 text-white border-amber-600' :
-     'bg-gray-900 text-white dark:bg-white dark:text-gray-900 border-gray-800');
-
-  var icone = tipo === 'error' ? 'fa-circle-xmark' :
-              tipo === 'warning' ? 'fa-triangle-exclamation' :
-              'fa-circle-check';
-
-  toast.innerHTML = '<i class="fas ' + icone + ' text-base"></i><spa
+    (tipo === 'error' ? 'bg-red-600
