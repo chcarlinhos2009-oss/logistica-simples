@@ -936,8 +936,28 @@ async function login(tipo){
 
 function logout(){ if(sessionTimer) clearInterval(sessionTimer); sessionTimer=null; sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem('ls_user'); usuarioAtual = null; notify('Você saiu do sistema com segurança.', 'warning'); telaInicial(); }
 
-function usuariosTela(){
+async function usuariosTela(){
   if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+
+  // Atualiza a lista a partir do registro online da escola ao abrir a tela
+  // (ou quando a busca estiver limpa), para mostrar professores cadastrados
+  // em outros dispositivos sem alterar o compartilhamento do estoque.
+  if(onlineReady && escola && !String(window.__usuariosBusca || '').trim()){
+    try{
+      var respostaUsuarios = await sbRequest(
+        'ls_app_data',
+        'GET',
+        'select=usuarios&escola=eq.' + encodeURIComponent(escola) + '&limit=1'
+      );
+      if(respostaUsuarios && respostaUsuarios.length && Array.isArray(respostaUsuarios[0].usuarios)){
+        usuarios = normalizarUsuarios(respostaUsuarios[0].usuarios);
+        salvarUsuariosLocalSeguro();
+      }
+    }catch(erroUsuarios){
+      console.warn('Não foi possível atualizar a lista de usuários online:', erroUsuarios);
+      // Mantém a lista local para não interromper o restante do painel.
+    }
+  }
 
   var buscaAtual = window.__usuariosBusca || '';
   var termo = buscaAtual.trim().toLowerCase();
