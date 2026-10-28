@@ -470,6 +470,8 @@ function save(){
 }
 
 async function inicializarApp(){
+  // Renderiza a tela inicial imediatamente para evitar página branca enquanto o Supabase responde.
+  try { telaInicial(); } catch(e) { console.error("Erro ao renderizar a tela inicial:", e); }
   if(usuarioAtual && usuarioAtual.escola){
     var ok = await carregarDadosOnline(usuarioAtual.escola, true);
     if(ok){
@@ -509,4 +511,2084 @@ function notify(texto, tipo) {
 
   var toast = document.createElement('div');
   toast.className = 'toast-enter pointer-events-auto flex items-center gap-3 p-4 rounded-2xl shadow-lg border text-xs font-semibold ' +
-    (tipo === 'error' ? 'bg-red-600
+    (tipo === 'error' ? 'bg-red-600 text-white border-red-700' :
+     tipo === 'warning' ? 'bg-amber-500 text-white border-amber-600' :
+     'bg-gray-900 text-white dark:bg-white dark:text-gray-900 border-gray-800');
+
+  var icone = tipo === 'error' ? 'fa-circle-xmark' :
+              tipo === 'warning' ? 'fa-triangle-exclamation' :
+              'fa-circle-check';
+
+  toast.innerHTML = '<i class="fas ' + icone + ' text-base"></i><span class="flex-1">' + esc(texto) + '</span>';
+  container.appendChild(toast);
+
+  setTimeout(function() {
+    toast.classList.remove('toast-enter');
+    toast.classList.add('toast-exit');
+    setTimeout(function() { toast.remove(); }, 300);
+  }, 3000);
+}
+
+function msg(t, tipo){
+  notify(t, tipo || 'warning');
+}
+
+// MODAL DE CONFIRMAÇÃO PERSONALIZADO
+function pedirConfirmacao(mensagem, aoConfirmar) {
+  var modal = document.getElementById('confirm-modal');
+  var msgEl = document.getElementById('confirm-msg');
+  var btnOk = document.getElementById('confirm-btn-ok');
+  var btnCancel = document.getElementById('confirm-btn-cancel');
+
+  msgEl.textContent = mensagem;
+  modal.classList.remove('hidden');
+
+  function fechar() {
+    modal.classList.add('hidden');
+    btnOk.onclick = null;
+    btnCancel.onclick = null;
+  }
+
+  btnCancel.onclick = fechar;
+  btnOk.onclick = function() {
+    fechar();
+    aoConfirmar();
+  };
+}
+
+// FUNÇÃO PARA ALTERNAR A VISIBILIDADE DOS CAMPOS DE SENHA E TOKEN
+function alternarVisibilidadeCampo(idInput, idIcone) {
+  var campo = document.getElementById(idInput);
+  var icone = document.getElementById(idIcone);
+  if (!campo || !icone) return;
+
+  if (campo.type === 'password') {
+    campo.type = 'text';
+    icone.classList.remove('fa-eye');
+    icone.classList.add('fa-eye-slash');
+  } else {
+    campo.type = 'password';
+    icone.classList.remove('fa-eye-slash');
+    icone.classList.add('fa-eye');
+  }
+}
+
+function head(t,s){
+  return '<div class="flex flex-wrap justify-between items-center gap-3 mb-5 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">' +
+    '<div>' +
+      '<h1 class="text-lg sm:text-2xl font-bold text-brandDarkBlue dark:text-white flex items-center gap-2">' +
+        '<i class="fas fa-school text-brandGreen"></i>' +
+        '<span>' + esc(t || 'Almoxarifado') + '</span>' +
+      '</h1>' +
+      '<p class="text-xs text-brandGreen font-medium mt-0.5">' + s + ' · ' + perfil + '</p>' +
+    '</div>' +
+    '<button onclick="dashboard()" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 px-3.5 py-2 rounded-xl text-gray-600 dark:text-gray-200 font-bold text-xs flex items-center gap-2 transition">' +
+      '<i class="fas fa-home"></i> <span>Início</span>' +
+    '</button>' +
+  '</div>';
+}
+
+function shell(x){ app.innerHTML = '<div class="fade">' + x + '</div>'; }
+
+function stat(i,l,n,c){
+  return '<div class="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between">' +
+    '<div>' +
+      '<p class="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-wider">' + l + '</p>' +
+      '<h2 class="text-2xl sm:text-3xl font-extrabold text-' + c + ' mt-0.5">' + n + '</h2>' +
+    '</div>' +
+    '<div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-50 dark:bg-gray-700 flex items-center justify-center text-' + c + ' text-xl sm:text-2xl">' +
+      '<i class="fas fa-' + i + '"></i>' +
+    '</div>' +
+  '</div>';
+}
+
+function tile(i,t,d,f){
+  return '<button onclick="' + f + '()" class="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-brandGreen dark:hover:border-brandGreen transition text-left flex flex-col justify-between group">' +
+    '<div>' +
+      '<div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-gray-700 text-brandDarkBlue dark:text-blue-400 flex items-center justify-center text-xl mb-3 group-hover:bg-brandGreen group-hover:text-white transition">' +
+        '<i class="fas fa-' + i + '"></i>' +
+      '</div>' +
+      '<h3 class="font-bold text-sm sm:text-base text-gray-800 dark:text-white">' + t + '</h3>' +
+      '<p class="text-xs text-gray-400 mt-1 line-clamp-2">' + d + '</p>' +
+    '</div>' +
+  '</button>';
+}
+
+function telaInicial(){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-6">' +
+      '<div class="inline-flex items-center justify-center w-20 h-20 bg-brandDarkBlue text-white rounded-3xl shadow-lg mb-4">' +
+        '<i class="fas fa-school text-3xl"></i>' +
+      '</div>' +
+      '<h1 class="text-2xl sm:text-3xl font-extrabold text-brandDarkBlue dark:text-white">Logística <span class="text-brandGreen">Simples</span></h1>' +
+      '<p class="text-xs sm:text-sm font-semibold text-gray-400 mt-1 uppercase">Gestão de Almoxarifado Escolar</p>' +
+    '</div>' +
+    '<div class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<h2 class="text-lg font-bold text-center">Quem vai acessar?</h2>' +
+      '<p class="text-xs text-gray-400 text-center mt-1 mb-5">Escolha o tipo de acesso para continuar</p>' +
+      '<div class="grid grid-cols-2 gap-3">' +
+        '<button onclick="abrirLogin(\'Coordenador\')" class="p-4 rounded-2xl border-2 border-transparent hover:border-brandGreen bg-blue-50 dark:bg-gray-700 text-brandDarkBlue dark:text-white text-center transition">' +
+          '<i class="fas fa-user-tie text-2xl mb-2 text-brandDarkBlue dark:text-blue-400"></i>' +
+          '<div class="font-bold text-sm">Coordenador</div>' +
+          '<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">Acesso total</div>' +
+        '</button>' +
+        '<button onclick="abrirLogin(\'Professor\')" class="p-4 rounded-2xl border-2 border-transparent hover:border-brandGreen bg-green-50 dark:bg-gray-700 text-brandGreen text-center transition">' +
+          '<i class="fas fa-chalkboard-teacher text-2xl mb-2 text-brandGreen"></i>' +
+          '<div class="font-bold text-sm">Professor</div>' +
+          '<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">Consultas</div>' +
+        '</button>' +
+      '</div>' +
+      '<div class="border-t dark:border-gray-700 mt-5 pt-5 text-center">' +
+        '<p class="text-xs text-gray-400 mb-2">Ainda não possui uma conta?</p>' +
+        '<button onclick="cadastro()" class="text-brandGreen font-bold text-xs sm:text-sm hover:underline inline-flex items-center gap-1.5">' +
+          '<i class="fas fa-user-plus"></i> Fazer cadastro' +
+        '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function cadastro(){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-5">' +
+      '<h1 class="text-2xl font-extrabold text-brandDarkBlue dark:text-white">Criar <span class="text-brandGreen">cadastro</span></h1>' +
+      '<p class="text-xs text-gray-400 mt-1">Crie seu acesso ao Logística Simples</p>' +
+    '</div>' +
+    '<form id="cadastroForm" class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<label class="label">Escola</label>' +
+      '<input id="cescola" class="input" placeholder="Nome da escola" required>' +
+      
+      '<label class="label">E-mail</label>' +
+      '<div class="flex gap-2">' +
+        '<input id="cemail" type="email" class="input" placeholder="seu.email@escola.com" required>' +
+        '<button type="button" id="btnSolicitarToken" onclick="solicitarTokenEmail()" class="hidden bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition">' +
+          'Enviar Token' +
+        '</button>' +
+      '</div>' +
+
+      '<label class="label">Usuário</label>' +
+      '<input id="cuser" class="input" placeholder="Escolha um usuário" required>' +
+      
+      '<label class="label">Senha</label>' +
+      '<div class="relative">' +
+        '<input id="csenha" type="password" class="input pr-10" placeholder="Crie uma senha" minlength="4" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'csenha\', \'iconeSenha\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeSenha" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+
+      '<label class="label">Confirmar senha</label>' +
+      '<div class="relative">' +
+        '<input id="cconfirm" type="password" class="input pr-10" placeholder="Digite a senha novamente" minlength="4" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'cconfirm\', \'iconeConfirm\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeConfirm" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+      
+      '<label class="label">Tipo de acesso</label>' +
+      '<select id="cperfil" class="input" onchange="toggleTokenField()">' +
+        '<option>Professor</option>' +
+        '<option>Coordenador</option>' +
+      '</select>' +
+      
+      '<div id="divToken" class="hidden mt-2">' +
+        '<label class="label text-red-500"><i class="fas fa-key mr-1"></i>Token do Coordenador</label>' +
+        '<div class="relative">' +
+          '<input id="ctoken" type="password" class="input border-red-300 focus:border-red-500 pr-10" placeholder="Informe o token recebido">' +
+          '<button type="button" onclick="alternarVisibilidadeCampo(\'ctoken\', \'iconeToken\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+            '<i id="iconeToken" class="fas fa-eye"></i>' +
+          '</button>' +
+        '</div>' +
+        '' +
+      '</div>' +
+      
+      '<button type="submit" class="w-full bg-brandGreen text-white p-3.5 rounded-xl font-bold mt-5 text-sm hover:opacity-90">' +
+        '<i class="fas fa-check mr-2"></i>Criar cadastro' +
+      '</button>' +
+      '<button type="button" onclick="telaInicial()" class="w-full mt-3 text-gray-400 font-semibold text-xs py-2">← Voltar</button>' +
+    '</form>' +
+  '</div>';
+}
+
+function toggleTokenField(){
+  var perfilEl = document.getElementById('cperfil');
+  var divToken = document.getElementById('divToken');
+  var btnToken = document.getElementById('btnSolicitarToken');
+  
+  if(perfilEl){
+    if(perfilEl.value === 'Coordenador'){
+      if(divToken) divToken.classList.remove('hidden');
+      if(btnToken) btnToken.classList.remove('hidden');
+    } else {
+      if(divToken) divToken.classList.add('hidden');
+      if(btnToken) btnToken.classList.add('hidden');
+    }
+  }
+}
+
+async function solicitarTokenEmail(){
+  var emailEl = document.getElementById('cemail');
+  var escolaEl = document.getElementById('cescola');
+  var email = emailEl ? emailEl.value.trim() : '';
+  var escolaSolicitante = escolaEl ? escolaEl.value.trim() : '';
+
+  if(!email || !email.includes('@')){
+    msg('Por favor, digite um e-mail válido para solicitar o token.', 'error');
+    return;
+  }
+  if(!escolaSolicitante){
+    msg('Informe a escola antes de solicitar o token.', 'error');
+    return;
+  }
+
+  try{
+    var pendentes = await sbRequest('solicitacoes', 'GET',
+      'select=id&email=eq.' + encodeURIComponent(email) +
+      '&escola=eq.' + encodeURIComponent(escolaSolicitante) +
+      '&status=eq.pendente&limit=1');
+
+    if(pendentes && pendentes.length){
+      msg('Já existe uma solicitação pendente para este e-mail.', 'warning');
+      return;
+    }
+
+    await sbRequest('solicitacoes', 'POST', '', {
+      escola: escolaSolicitante,
+      email: email,
+      data: new Date().toLocaleString('pt-BR'),
+      status: 'pendente'
+    }, {'Prefer':'return=minimal'});
+
+    notify('Solicitação enviada! Aguarde a aprovação.', 'success');
+  }catch(err){
+    console.error(err);
+    msg('Não foi possível enviar a solicitação online. Verifique as permissões da tabela solicitacoes no Supabase.', 'error');
+  }
+}
+
+async function criarCadastro(){
+ var escolaEl = document.getElementById('cescola'), userEl = document.getElementById('cuser'),
+ senhaEl = document.getElementById('csenha'), confirmEl = document.getElementById('cconfirm'),
+ perfilEl = document.getElementById('cperfil'), tokenEl = document.getElementById('ctoken'), emailEl = document.getElementById('cemail');
+ 
+ var escolaNova = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
+ var emailNovo = (emailEl && emailEl.value ? emailEl.value : '').trim();
+ var usuario = (userEl && userEl.value ? userEl.value : '').trim();
+ var senha = senhaEl ? senhaEl.value : '';
+ var confirmar = confirmEl ? confirmEl.value : '';
+ var perfilNovo = (perfilEl && perfilEl.value) ? perfilEl.value : 'Professor';
+ var tokenDigitado = tokenEl ? tokenEl.value.trim() : '';
+ 
+ if(!escolaNova || !emailNovo || !usuario || !senha || !confirmar){msg('Preencha todos os campos.', 'error');return false;}
+ if(senha !== confirmar){msg('As senhas não são iguais.', 'error');return false;}
+ if(usuario.length < 3){msg('O usuário deve ter pelo menos 3 caracteres.', 'error');return false;}
+
+ // Carrega a escola antes de validar/cadastrar, evitando misturar usuários de escolas diferentes.
+ var escolaCarregada = await carregarDadosOnline(escolaNova, true);
+ if(!escolaCarregada){
+   msg('Não foi possível conectar ao banco para concluir o cadastro.', 'error');
+   return false;
+ }
+
+ if(perfilNovo === 'Coordenador'){
+   if(!tokenDigitado){
+     msg('Informe o Token de Segurança do Coordenador.', 'error');
+     return false;
+   }
+
+   try{
+     var tokens = await sbRequest('token', 'GET',
+       'select=id,token,status,escola,email&token=eq.' + encodeURIComponent(tokenDigitado) + '&limit=1');
+     var tokenValido = tokens && tokens.length ? tokens[0] : null;
+
+     if(!tokenValido){
+       msg('Token inválido. Solicite um token de acesso ao administrador.', 'error');
+       return false;
+     }
+     if(String(tokenValido.status || '').toLowerCase() === 'usado'){
+       msg('Esse token já foi utilizado. Solicite um novo token.', 'error');
+       return false;
+     }
+     if(tokenValido.email && String(tokenValido.email).toLowerCase() !== emailNovo.toLowerCase()){
+       msg('Esse token foi liberado para outro e-mail.', 'error');
+       return false;
+     }
+     if(tokenValido.escola && String(tokenValido.escola).toLowerCase() !== escolaNova.toLowerCase()){
+       msg('Esse token foi liberado para outra escola.', 'error');
+       return false;
+     }
+
+     await sbRequest('token', 'PATCH', 'id=eq.' + encodeURIComponent(tokenValido.id), {
+       status: 'usado'
+     }, {'Prefer':'return=minimal'});
+   }catch(err){
+     console.error(err);
+     msg('Token inválido. Verifique o código informado e tente novamente.', 'error');
+     return false;
+   }
+ }
+
+ var usuarioExiste = usuarios.some(function(u){
+    var uNome = (u && u.usuario) ? String(u.usuario) : '';
+    return uNome.toLowerCase() === usuario.toLowerCase();
+ });
+ if(usuarioExiste){msg('Esse usuário já existe. Escolha outro.', 'error');return false;}
+
+ var credencial = await gerarHashSenha(senha);
+ var novo = {id:Date.now(), nome:usuario, usuario:usuario, email:emailNovo, senhaHash:credencial.hash, senhaSalt:credencial.salt, perfil:perfilNovo, escola:escolaNova};
+ usuarios.push(novo);
+ usarEscola(escolaNova);
+ salvarUsuariosLocalSeguro();
+ localStorage.setItem(K, JSON.stringify(db));
+
+ var salvou = await salvarDadosOnline();
+ if(!salvou){
+   usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+   salvarUsuariosLocalSeguro();
+   msg('O cadastro não foi sincronizado com o servidor.', 'error');
+   return false;
+ }
+
+ notify('Cadastro concluído com sucesso!', 'success');
+ abrirLogin(perfilNovo);
+ return false;
+}
+
+function abrirLogin(tipo){
+  app.innerHTML = '<div class="fade flex flex-col items-center justify-center min-h-[85vh] py-6">' +
+    '<div class="text-center mb-5">' +
+      '<div class="inline-flex items-center justify-center w-16 h-16 bg-brandDarkBlue text-white rounded-2xl shadow-md mb-3">' +
+        '<i class="fas fa-school text-2xl"></i>' +
+      '</div>' +
+      '<h1 class="text-2xl font-extrabold text-brandDarkBlue dark:text-white">Logística <span class="text-brandGreen">Simples</span></h1>' +
+      '<p class="text-xs text-gray-400 mt-1">Login de ' + tipo + '</p>' +
+    '</div>' +
+    '<form id="loginForm" class="w-full max-w-sm sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-sm border p-5 sm:p-7">' +
+      '<label class="label">Escola</label>' +
+      '<input id="lescola" class="input" placeholder="Nome da escola" value="' + esc(escolaAtual) + '" required>' +
+      '<label class="label">Usuário</label>' +
+      '<input id="luser" class="input" placeholder="Seu usuário" autocomplete="username" required>' +
+      '<label class="label">Senha</label>' +
+      '<div class="relative">' +
+        '<input id="lsenha" type="password" class="input pr-10" placeholder="Sua senha" autocomplete="current-password" required>' +
+        '<button type="button" onclick="alternarVisibilidadeCampo(\'lsenha\', \'iconeLoginSenha\')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition">' +
+          '<i id="iconeLoginSenha" class="fas fa-eye"></i>' +
+        '</button>' +
+      '</div>' +
+      '<label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-3">' +
+        '<input id="lembrar" type="checkbox" class="rounded text-brandGreen focus:ring-0"> Lembrar escola' +
+      '</label>' +
+      '<button type="submit" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm hover:opacity-90">Entrar</button>' +
+      '<button type="button" onclick="telaInicial()" class="w-full mt-3 text-gray-400 font-semibold text-xs py-2">← Voltar</button>' +
+      '<div class="mt-3 pt-3 border-t dark:border-gray-700 text-center">' +
+        '<button type="button" onclick="abrirSuporte()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-brandDarkBlue dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 font-bold text-xs transition">' +
+          '<i class="fas fa-comments"></i> Precisa de ajuda?' +
+        '</button>' +
+        '<p class="text-[10px] text-gray-400 mt-2">Esqueceu a senha ou precisa falar com o suporte?</p>' +
+      '</div>' +
+      '<div class="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-gray-700 text-blue-800 dark:text-blue-300 text-xs text-center">' +
+        '<i class="fas fa-shield-halved mr-1"></i><b>Sessão protegida</b> · encerramento automático após 30 minutos de inatividade' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+}
+
+async function login(tipo){
+ var escolaEl = document.getElementById('lescola'), userEl = document.getElementById('luser'), senhaEl = document.getElementById('lsenha'), lembrarEl = document.getElementById('lembrar');
+ var e = (escolaEl && escolaEl.value ? escolaEl.value : '').trim();
+ var u = (userEl && userEl.value ? userEl.value : '').trim();
+ var s = senhaEl ? senhaEl.value : '';
+ var lembrar = !!(lembrarEl && lembrarEl.checked);
+
+ if(!e || !u || !s){msg('Preencha escola, usuário e senha.', 'error');return false;}
+
+ var carregou = await carregarDadosOnline(e, true);
+ if(!carregou){
+   msg('Não foi possível consultar o banco online. Tente novamente.', 'error');
+   return false;
+ }
+
+ var x = usuarios.find(function(a){
+    var uName = (a && a.usuario) ? String(a.usuario).trim().toLowerCase() : '';
+    return uName === u.toLowerCase();
+ });
+
+ if(!x){msg('Usuário ou senha incorretos.', 'error');return false;}
+ if(tipo && x.perfil !== tipo){msg('Esse usuário não pertence ao perfil escolhido.', 'error');return false;}
+ if(x.escola && String(x.escola).toLowerCase() !== e.toLowerCase()){msg('Esse usuário não está cadastrado nesta escola.', 'error');return false;}
+
+ var senhaOk = await senhaValida(x, s);
+ if(!senhaOk){msg('Usuário ou senha incorretos.', 'error');return false;}
+
+ var migrou = await migrarSenhaSeNecessario(x, s);
+ if(migrou){
+   var migrouOnline = await salvarDadosOnline();
+   if(!migrouOnline){
+     msg('Login realizado, mas não foi possível concluir a migração segura da senha no servidor.', 'warning');
+   }
+ }
+
+ escola = e;
+ usarEscola(e);
+ perfil = x.perfil;
+ usuarioAtual = Object.assign({}, x);
+ delete usuarioAtual.senha;
+ var fabSuporte = document.getElementById('support-fab');
+ if(fabSuporte) fabSuporte.classList.remove('hidden');
+ alertasLidos = false;
+ salvarSessaoSegura(usuarioAtual);
+ salvarUsuariosLocalSeguro();
+ if(lembrar) localStorage.setItem('ls_escola', e); else localStorage.removeItem('ls_escola');
+ notify('Login realizado com sucesso!', 'success');
+ dashboard();
+ if(x.senhaTemporaria){
+   setTimeout(function(){ abrirAlteracaoSenha(true); }, 250);
+ }
+ return false;
+}
+
+function logout(){ if(sessionTimer) clearInterval(sessionTimer); sessionTimer=null; sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem('ls_user'); usuarioAtual = null; notify('Você saiu do sistema com segurança.', 'warning'); telaInicial(); }
+
+function usuariosTela(){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+
+  var buscaAtual = window.__usuariosBusca || '';
+  var termo = buscaAtual.trim().toLowerCase();
+  var lista = usuarios.filter(function(u){
+    if(!termo) return true;
+    return String(u.nome || '').toLowerCase().includes(termo) ||
+           String(u.usuario || '').toLowerCase().includes(termo) ||
+           String(u.perfil || '').toLowerCase().includes(termo);
+  });
+
+  var listaUsuariosHTML = lista.length ? lista.map(function(u){
+      var isAdmin = String(u.usuario || '').toLowerCase() === 'admin';
+      var perfilCor = String(u.perfil || '').toLowerCase() === 'coordenador'
+        ? 'bg-blue-50 text-brandDarkBlue dark:bg-blue-900/30 dark:text-blue-300'
+        : 'bg-green-50 text-brandGreen dark:bg-green-900/30 dark:text-green-300';
+      var btn = isAdmin
+        ? '<span class="text-xs bg-gray-100 dark:bg-gray-700 px-2.5 py-1 rounded-lg text-gray-500 font-semibold">Principal</span>'
+        : '<button onclick="removeUsuario(' + Number(u.id) + ')" class="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition"><i class="fas fa-trash mr-1"></i>Excluir</button>';
+
+      return '<div class="p-4 flex items-center justify-between gap-4 hover:bg-gray-50 dark:hover:bg-gray-750 transition">' +
+            '<div class="flex items-center gap-3 min-w-0">' +
+              '<div class="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center shrink-0 text-gray-500"><i class="fas ' + (String(u.perfil || '').toLowerCase() === 'coordenador' ? 'fa-user-tie' : 'fa-chalkboard-teacher') + '"></i></div>' +
+              '<div class="min-w-0">' +
+                '<div class="font-bold text-gray-800 dark:text-gray-100 truncate">' + esc(u.nome || u.usuario) + '</div>' +
+                '<div class="text-xs text-gray-400 truncate">@' + esc(u.usuario) + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex items-center gap-2 shrink-0">' +
+              '<span class="text-[11px] px-2.5 py-1 rounded-lg font-bold ' + perfilCor + '">' + esc(u.perfil || 'Professor') + '</span>' +
+              btn +
+            '</div>' +
+          '</div>';
+  }).join('') :
+    '<div class="p-8 text-center text-gray-400"><i class="fas fa-user-slash text-2xl mb-2"></i><p class="text-sm font-semibold">Nenhum usuário encontrado.</p><p class="text-xs mt-1">Tente outro termo de pesquisa.</p></div>';
+
+  var total = usuarios.length;
+  var professores = usuarios.filter(function(u){ return String(u.perfil || '').toLowerCase() === 'professor'; }).length;
+  var coordenadores = usuarios.filter(function(u){ return String(u.perfil || '').toLowerCase() === 'coordenador'; }).length;
+
+  shell(head('Usuários','Controle de acesso') +
+    '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">' +
+      '<div class="bg-white dark:bg-gray-800 p-4 rounded-2xl border shadow-sm"><div class="text-xs text-gray-400 font-semibold">Total de usuários</div><div class="text-2xl font-extrabold text-brandDarkBlue mt-1">' + total + '</div></div>' +
+      '<div class="bg-white dark:bg-gray-800 p-4 rounded-2xl border shadow-sm"><div class="text-xs text-gray-400 font-semibold">Professores</div><div class="text-2xl font-extrabold text-brandGreen mt-1">' + professores + '</div></div>' +
+      '<div class="bg-white dark:bg-gray-800 p-4 rounded-2xl border shadow-sm"><div class="text-xs text-gray-400 font-semibold">Coordenadores</div><div class="text-2xl font-extrabold text-brandDarkBlue mt-1">' + coordenadores + '</div></div>' +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl border mb-5 shadow-sm">' +
+      '<div class="flex items-center justify-between gap-3 mb-4"><div><h2 class="font-bold text-base">Novo usuário</h2><p class="text-xs text-gray-400 mt-1">Cadastre acessos para esta escola.</p></div><i class="fas fa-user-plus text-brandGreen text-xl"></i></div>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        '<div><label class="label">Nome</label><input id="unome" class="input" placeholder="Nome completo" autocomplete="name"></div>' +
+        '<div><label class="label">Usuário</label><input id="uuser" class="input" placeholder="Nome de usuário" autocomplete="username"></div>' +
+        '<div><label class="label">Senha</label><input id="usenha" type="password" class="input" placeholder="Senha" autocomplete="new-password"></div>' +
+        '<div><label class="label">Perfil</label><select id="uperfil" class="input"><option>Professor</option><option>Coordenador</option></select></div>' +
+      '</div>' +
+      '<button onclick="addUsuario()" id="btn-add-usuario" class="bg-brandGreen text-white p-3 rounded-xl font-bold text-xs sm:text-sm mt-4 w-full sm:w-auto px-6 hover:opacity-90 transition"><i class="fas fa-user-plus mr-2"></i>Cadastrar Usuário</button>' +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden">' +
+      '<div class="p-4 border-b dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">' +
+        '<div><div class="font-bold text-sm">Usuários cadastrados</div><div class="text-xs text-gray-400 mt-1">Acesso restrito ao coordenador.</div></div>' +
+        '<div class="relative w-full sm:w-72"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i><input id="busca-usuarios" value="' + esc(buscaAtual) + '" oninput="filtrarUsuarios(this.value)" class="input pl-9" placeholder="Buscar usuário..."></div>' +
+      '</div>' +
+      '<div class="divide-y dark:divide-gray-700">' + listaUsuariosHTML + '</div>' +
+    '</div>'
+  );
+}
+
+function filtrarUsuarios(valor){
+  window.__usuariosBusca = valor || '';
+  usuariosTela();
+  var campo = document.getElementById('busca-usuarios');
+  if(campo){ campo.focus(); campo.setSelectionRange(campo.value.length, campo.value.length); }
+}
+
+async function addUsuario(){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  var unome = document.getElementById('unome');
+  var uuser = document.getElementById('uuser');
+  var usenha = document.getElementById('usenha');
+  var uperfil = document.getElementById('uperfil');
+  var btn = document.getElementById('btn-add-usuario');
+  var nome = unome ? unome.value.trim() : '';
+  var loginUser = uuser ? uuser.value.trim() : '';
+  var senha = usenha ? usenha.value : '';
+  var perfilNovo = uperfil ? uperfil.value : 'Professor';
+
+  if(!nome || !loginUser || !senha) return msg('Preencha todos os campos.', 'error');
+  if(loginUser.length < 3) return msg('O usuário deve ter pelo menos 3 caracteres.', 'error');
+  if(senha.length < 4) return msg('A senha deve ter pelo menos 4 caracteres.', 'error');
+
+  var existe = usuarios.some(function(u){ return String(u.usuario || '').trim().toLowerCase() === loginUser.toLowerCase(); });
+  if(existe) return msg('Usuário já existe. Escolha outro.', 'error');
+
+  var novo = {id:Date.now(), nome:nome, usuario:loginUser, senha:senha, perfil:perfilNovo, escola:escolaBanco || escola};
+  usuarios.push(novo);
+
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvando...'; }
+  var salvou = await salvarDadosOnline();
+  salvarUsuariosLocalSeguro();
+
+  if(!salvou && onlineReady){
+    usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+    salvarUsuariosLocalSeguro();
+    msg('Não foi possível salvar o usuário no servidor. Tente novamente.', 'error');
+    usuariosTela();
+    return;
+  }
+
+  notify(salvou ? 'Usuário cadastrado e sincronizado com sucesso!' : 'Usuário cadastrado neste dispositivo.', salvou ? 'success' : 'warning');
+  window.__usuariosBusca = '';
+  usuariosTela();
+}
+
+function removeUsuario(id){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  var alvo = usuarios.find(function(u){ return Number(u.id) === Number(id); });
+  if(!alvo) return;
+  if(String(alvo.usuario || '').toLowerCase() === 'admin') return msg('O usuário principal não pode ser excluído.', 'warning');
+
+  pedirConfirmacao('Deseja realmente remover o usuário "' + (alvo.nome || alvo.usuario) + '"?', async function(){
+    var copia = usuarios.slice();
+    usuarios = usuarios.filter(function(u){ return Number(u.id) !== Number(id); });
+    var salvou = await salvarDadosOnline();
+    salvarUsuariosLocalSeguro();
+
+    if(!salvou && onlineReady){
+      usuarios = copia;
+      salvarUsuariosLocalSeguro();
+      msg('Não foi possível excluir o usuário no servidor. Tente novamente.', 'error');
+      usuariosTela();
+      return;
+    }
+
+    notify(salvou ? 'Usuário excluído e sincronizado com sucesso!' : 'Usuário excluído neste dispositivo.', salvou ? 'success' : 'warning');
+    usuariosTela();
+  });
+}
+
+function verAlertas(){
+  alertasLidos = true;
+  alertas();
+}
+
+function abrirAlteracaoSenha(obrigatoria){
+  var atual = usuarioAtual || lerSessaoSegura() || {};
+  if(!atual.usuario || !atual.escola){ msg('Não foi possível identificar sua conta.', 'error'); return; }
+  var modal = document.getElementById('senha-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'senha-modal';
+    modal.className = 'fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm p-3 sm:p-5 flex items-center justify-center';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = '<div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border dark:border-gray-700 overflow-hidden">' +
+    '<div class="p-5 border-b dark:border-gray-700 flex items-center gap-3">' +
+      '<div class="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-brandDarkBlue dark:text-blue-300 flex items-center justify-center"><i class="fas fa-key"></i></div>' +
+      '<div><h2 class="font-extrabold text-base">' + (obrigatoria ? 'Atualize sua senha' : 'Alterar senha') + '</h2><p class="text-[11px] text-gray-400 mt-0.5">Conta: @' + esc(atual.usuario) + '</p></div>' +
+    '</div>' +
+    (obrigatoria ? '<div class="mx-5 mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs"><i class="fas fa-triangle-exclamation mr-1"></i> Sua senha atual é temporária. Por segurança, crie uma nova senha para continuar.</div>' : '') +
+    '<form id="form-alterar-senha" class="p-5 space-y-3">' +
+      '<div><label class="label">Senha atual</label><input id="senha-atual-conta" type="password" class="input" autocomplete="current-password" required></div>' +
+      '<div><label class="label">Nova senha</label><input id="senha-nova-conta" type="password" class="input" minlength="6" autocomplete="new-password" required><p class="text-[10px] text-gray-400 mt-1">Use pelo menos 6 caracteres.</p></div>' +
+      '<div><label class="label">Confirmar nova senha</label><input id="senha-confirma-conta" type="password" class="input" minlength="6" autocomplete="new-password" required></div>' +
+      '<div class="flex gap-2 pt-2">' +
+        (!obrigatoria ? '<button type="button" onclick="fecharAlteracaoSenha()" class="flex-1 px-4 py-3 rounded-xl border font-bold text-xs text-gray-600 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Cancelar</button>' : '') +
+        '<button id="btn-alterar-senha-conta" type="submit" class="' + (obrigatoria ? 'w-full' : 'flex-1') + ' px-4 py-3 rounded-xl bg-brandDarkBlue text-white font-bold text-xs hover:opacity-90"><i class="fas fa-check mr-1"></i> Alterar senha</button>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+  modal.classList.remove('hidden');
+  document.getElementById('form-alterar-senha').onsubmit = async function(ev){
+    ev.preventDefault();
+    var atualSenha = document.getElementById('senha-atual-conta').value;
+    var nova = document.getElementById('senha-nova-conta').value;
+    var confirma = document.getElementById('senha-confirma-conta').value;
+    if(nova.length < 6) return msg('A nova senha deve ter pelo menos 6 caracteres.', 'error');
+    if(nova !== confirma) return msg('A confirmação da nova senha não confere.', 'error');
+    if(nova === atualSenha) return msg('A nova senha deve ser diferente da senha atual.', 'error');
+    var btn = document.getElementById('btn-alterar-senha-conta');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Salvando...';
+    try{
+      await suporteRequest({acao:'alterar_propria_senha', escola:String(atual.escola || escola || '').trim(), usuario:String(atual.usuario || '').trim(), senha_atual:atualSenha, nova_senha:nova});
+      await carregarDadosOnline(String(atual.escola || escola || '').trim(), false);
+      var atualizado = usuarios.find(function(u){ return String(u.usuario || '').toLowerCase() === String(atual.usuario || '').toLowerCase(); });
+      if(atualizado){
+        usuarioAtual = Object.assign({}, atualizado); delete usuarioAtual.senha;
+        salvarSessaoSegura(usuarioAtual);
+        salvarUsuariosLocalSeguro();
+      }
+      fecharAlteracaoSenha();
+      notify('Senha alterada com sucesso!', 'success');
+      if(typeof dashboard === 'function') dashboard();
+    }catch(e){
+      console.error(e); msg(e.message || 'Não foi possível alterar a senha.', 'error');
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-check mr-1"></i> Alterar senha';
+    }
+  };
+}
+
+function fecharAlteracaoSenha(){
+  var modal = document.getElementById('senha-modal');
+  if(modal) modal.remove();
+}
+
+function dashboard(){
+  var esCoord = perfil === 'Coordenador';
+  var materiais = Array.isArray(db.materiais) ? db.materiais : [];
+  var equipamentos = Array.isArray(db.equip) ? db.equip : [];
+  var emprestimos = Array.isArray(db.emp) ? db.emp : [];
+  var historico = Array.isArray(db.hist) ? db.hist : [];
+
+  var estoqueBaixo = materiais.filter(function(x){ return Number(x.qtd || 0) <= Number(x.min || 0); });
+  var emprestimosAtivos = emprestimos.filter(function(x){ return x.ativo; });
+  var itensCirculacao = emprestimosAtivos.reduce(function(acc,x){ return acc + Number(x.qtd || 1); }, 0);
+  var totalEquip = equipamentos.reduce(function(acc,x){ return acc + Number(x.total || 0); }, 0);
+  var dispEquip = equipamentos.reduce(function(acc,x){ return acc + Number(x.disp || 0); }, 0);
+  var ultimos = historico.slice(0,5);
+
+  var avisoBaixo = (esCoord && estoqueBaixo.length && !alertasLidos) ?
+    '<div class="bg-red-50 dark:bg-red-950/30 border-l-4 border-red-500 p-4 mb-5 rounded-r-xl text-red-800 dark:text-red-200 flex justify-between items-center text-xs sm:text-sm shadow-sm">' +
+      '<span><i class="fas fa-bell mr-1.5"></i><b>' + estoqueBaixo.length + '</b> item(s) estão abaixo do estoque mínimo.</span>' +
+      '<button onclick="verAlertas()" class="underline font-bold text-xs ml-2">Ver alertas</button>' +
+    '</div>' : '';
+
+  var ocupacao = totalEquip > 0 ? Math.round(((totalEquip - dispEquip) / totalEquip) * 100) : 0;
+  if(ocupacao < 0) ocupacao = 0;
+  if(ocupacao > 100) ocupacao = 100;
+
+  var recentesHTML = ultimos.length ? ultimos.map(function(h){
+    var icone = h.tipo === 'Entrada' ? 'arrow-down' : h.tipo === 'Saída' ? 'arrow-up' : h.tipo === 'Empréstimo' ? 'hand-holding' : h.tipo === 'Devolução' ? 'rotate-left' : h.tipo === 'Cadastro' ? 'user-plus' : 'clock-rotate-left';
+    var cor = h.tipo === 'Entrada' ? 'text-green-600 bg-green-50 dark:bg-green-900/20' : h.tipo === 'Saída' ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/20' : h.tipo === 'Devolução' ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'text-brandDarkBlue bg-blue-50 dark:bg-gray-700';
+    return '<div class="flex items-center gap-3 py-2.5 border-b last:border-0 dark:border-gray-700">' +
+      '<div class="w-8 h-8 rounded-lg ' + cor + ' flex items-center justify-center text-xs"><i class="fas fa-' + icone + '"></i></div>' +
+      '<div class="min-w-0 flex-1"><div class="text-xs font-bold truncate text-gray-700 dark:text-gray-200">' + esc(h.item || 'Movimentação') + '</div><div class="text-[10px] text-gray-400 truncate">' + esc(h.tipo || '') + (h.det ? ' · ' + esc(h.det) : '') + '</div></div>' +
+      '<div class="text-[10px] text-gray-400 whitespace-nowrap">' + esc(h.data || '') + '</div>' +
+    '</div>';
+  }).join('') : '<div class="py-8 text-center text-xs text-gray-400">Nenhuma movimentação registrada ainda.</div>';
+
+  var baixoHTML = estoqueBaixo.slice(0,4).map(function(x){
+    var max = Math.max(Number(x.min || 1), Number(x.qtd || 0), 1);
+    var pct = Math.max(0, Math.min(100, Math.round((Number(x.qtd || 0) / max) * 100)));
+    return '<div class="mb-3 last:mb-0"><div class="flex justify-between gap-2 text-xs mb-1"><span class="font-semibold truncate">' + esc(x.nome) + '</span><span class="text-red-500 font-bold whitespace-nowrap">' + x.qtd + '/' + x.min + '</span></div><div class="h-2 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden"><div class="h-full bg-red-500 rounded-full" style="width:' + pct + '%"></div></div></div>';
+  }).join('');
+
+  var resumoEstoque = esCoord ?
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5">' +
+      '<div class="flex items-center justify-between mb-4"><div><h3 class="font-bold text-sm">Atenção no estoque</h3><p class="text-[10px] text-gray-400 mt-0.5">Itens que precisam de reposição</p></div><button onclick="alertas()" class="text-brandDarkBlue text-xs font-bold hover:underline">Ver todos</button></div>' +
+      (baixoHTML || '<div class="py-5 text-center text-xs text-green-600 font-semibold">✓ Estoque dentro do mínimo.</div>') +
+    '</div>' : '';
+
+  shell(
+    head(escola, 'Painel do Almoxarifado') +
+    avisoBaixo +
+    '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">' +
+      stat('boxes','Materiais',materiais.length,'brandDarkBlue') +
+      (esCoord ? stat('triangle-exclamation','Estoque baixo',estoqueBaixo.length,'red-500') : '') +
+      stat('laptop','Equipamentos',equipamentos.length,'brandDarkBlue') +
+      stat('hand-holding','Emprestados',itensCirculacao,'brandGreen') +
+    '</div>' +
+    '<div class="grid lg:grid-cols-3 gap-4 mb-5">' +
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5 lg:col-span-2">' +
+        '<div class="flex items-center justify-between mb-4"><div><h3 class="font-bold text-sm">Visão geral dos equipamentos</h3><p class="text-[10px] text-gray-400 mt-0.5">Disponibilidade atual do patrimônio</p></div><span class="text-xs font-bold text-brandGreen">' + dispEquip + ' disponíveis</span></div>' +
+        '<div class="flex items-end gap-4"><div><div class="text-3xl font-black text-gray-800 dark:text-white">' + totalEquip + '</div><div class="text-[10px] text-gray-400">total de equipamentos</div></div><div class="flex-1 pb-1"><div class="flex justify-between text-[10px] text-gray-400 mb-1"><span>Em circulação</span><b class="text-gray-600 dark:text-gray-300">' + ocupacao + '%</b></div><div class="h-3 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden"><div class="h-full bg-brandGreen rounded-full transition-all" style="width:' + ocupacao + '%"></div></div></div></div>' +
+      '</div>' +
+      '<div class="bg-gradient-to-br from-blue-50 to-white dark:from-gray-800 dark:to-gray-800 rounded-2xl border shadow-sm p-5"><div class="w-10 h-10 rounded-xl bg-brandDarkBlue text-white flex items-center justify-center mb-3"><i class="fas fa-bolt"></i></div><h3 class="font-bold text-sm">Acesso rápido</h3><p class="text-xs text-gray-400 mt-1 mb-4">Use os atalhos para as tarefas mais comuns.</p><div class="grid grid-cols-2 gap-2"><button onclick="emprestimos()" class="p-2.5 rounded-xl bg-white dark:bg-gray-700 border text-[10px] font-bold hover:border-brandGreen"><i class="fas fa-arrow-right-arrow-left mr-1"></i>Empréstimo</button><button onclick="equipamentos()" class="p-2.5 rounded-xl bg-white dark:bg-gray-700 border text-[10px] font-bold hover:border-brandGreen"><i class="fas fa-laptop mr-1"></i>Equipamentos</button></div></div>' +
+    '</div>' +
+    '<div class="grid lg:grid-cols-3 gap-4 mb-5">' +
+      resumoEstoque +
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5 ' + (esCoord ? '' : 'lg:col-span-2') + '"><div class="flex items-center justify-between mb-2"><div><h3 class="font-bold text-sm">Atividade recente</h3><p class="text-[10px] text-gray-400">Últimas movimentações</p></div>' + (esCoord ? '<button onclick="historico()" class="text-brandDarkBlue text-xs font-bold hover:underline">Histórico</button>' : '') + '</div>' + recentesHTML + '</div>' +
+      (esCoord ? '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5"><h3 class="font-bold text-sm">Resumo operacional</h3><div class="grid grid-cols-2 gap-3 mt-4"><div class="rounded-xl bg-blue-50 dark:bg-gray-700 p-3"><div class="text-xl font-black text-brandDarkBlue">' + materiais.length + '</div><div class="text-[10px] text-gray-400">materiais</div></div><div class="rounded-xl bg-green-50 dark:bg-gray-700 p-3"><div class="text-xl font-black text-brandGreen">' + equipamentos.length + '</div><div class="text-[10px] text-gray-400">tipos de equipamento</div></div><div class="rounded-xl bg-amber-50 dark:bg-gray-700 p-3"><div class="text-xl font-black text-amber-600">' + emprestimosAtivos.length + '</div><div class="text-[10px] text-gray-400">empréstimos ativos</div></div><div class="rounded-xl bg-red-50 dark:bg-gray-700 p-3"><div class="text-xl font-black text-red-500">' + estoqueBaixo.length + '</div><div class="text-[10px] text-gray-400">alertas</div></div></div></div>' : '') +
+    '</div>' +
+    '<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">' +
+      (esCoord ? tile('boxes','Estoque','Materiais e movimentações','materiais') : tile('boxes','Materiais','Consultar itens disponíveis','materiais')) +
+      tile('laptop','Equipamentos','Notebooks, tablets e patrimônio','equipamentos') +
+      tile('arrow-right-arrow-left','Empréstimos','Registrar retirada e devolução','emprestimos') +
+      (esCoord ? tile('clipboard-list','Histórico','Todas as movimentações','historico') : '') +
+      (esCoord ? tile('triangle-exclamation','Alertas','Itens abaixo do estoque mínimo','alertas') : '') +
+      tile('chart-line','Relatórios','Imprimir e listar empréstimos','relatorios') +
+      (esCoord ? tile('shield-halved','Backup','Salvar e restaurar dados','backupTela') : '') +
+      (esCoord ? tile('users','Usuários','Gerenciar contas de acesso','usuariosTela') : '') +
+      tile('key','Minha conta','Alterar sua senha de acesso','abrirAlteracaoSenha') +
+    '</div>' +
+    '<div class="mt-8 pt-4 border-t dark:border-gray-800 flex justify-between items-center text-xs text-gray-400"><span>Operador: <strong class="text-gray-600 dark:text-gray-300">' + esc(perfil) + '</strong></span><button onclick="logout()" class="text-red-500 font-bold hover:underline">Sair do Sistema</button></div>'
+  );
+}
+
+function materiais(){
+  var esCoord = perfil === 'Coordenador';
+  var busca = (window.filtroMateriaisBusca || '').toLowerCase().trim();
+  var statusFiltro = window.filtroMateriaisStatus || 'todos';
+  var lista = db.materiais.filter(function(p){
+    var texto = ((p.nome || '') + ' ' + (p.cat || '')).toLowerCase();
+    var okBusca = !busca || texto.indexOf(busca) !== -1;
+    var baixo = Number(p.qtd || 0) <= Number(p.min || 0);
+    var okStatus = statusFiltro === 'todos' || (statusFiltro === 'baixo' && baixo) || (statusFiltro === 'disponivel' && !baixo);
+    return okBusca && okStatus;
+  });
+
+  var filtros = '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-3 sm:p-4 mb-4">' +
+    '<div class="flex flex-col lg:flex-row gap-3">' +
+      '<div class="relative flex-1">' +
+        '<i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>' +
+        '<input id="filtro-material-busca" value="' + esc(window.filtroMateriaisBusca || '') + '" oninput="filtrarMateriaisV5()" class="input pl-9 !mt-0" placeholder="Pesquisar por material ou categoria...">' +
+      '</div>' +
+      '<select id="filtro-material-status" onchange="filtrarMateriaisV5()" class="input !mt-0 lg:w-52">' +
+        '<option value="todos" ' + (statusFiltro==='todos'?'selected':'') + '>Todos os materiais</option>' +
+        '<option value="disponivel" ' + (statusFiltro==='disponivel'?'selected':'') + '>Estoque normal</option>' +
+        '<option value="baixo" ' + (statusFiltro==='baixo'?'selected':'') + '>Estoque baixo</option>' +
+      '</select>' +
+      '<button onclick="limparFiltrosMateriaisV5()" class="px-4 py-2.5 rounded-xl border text-gray-600 dark:text-gray-200 font-bold text-xs hover:bg-gray-50 dark:hover:bg-gray-700 transition">' +
+        '<i class="fas fa-rotate-left mr-1"></i>Limpar</button>' +
+    '</div>' +
+    '<div class="mt-2 text-[11px] text-gray-400"><i class="fas fa-filter mr-1"></i>Mostrando <strong class="text-gray-600 dark:text-gray-200">' + lista.length + '</strong> de ' + db.materiais.length + ' materiais</div>' +
+  '</div>';
+
+  var tabelaDesktop = lista.map(function(p){
+    var status = p.qtd <= p.min ? '<span class="bg-yellow-100 text-yellow-800 px-2.5 py-1 rounded-lg text-xs font-bold">Estoque baixo</span>' : '<span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-lg text-xs font-bold">Disponível</span>';
+    var acoes = esCoord ? '<td class="p-4 text-right whitespace-nowrap">' +
+      '<button onclick="entrada(' + p.id + ')" class="text-brandGreen font-bold mr-3 text-xs bg-green-50 px-2.5 py-1.5 rounded-lg">+ Entrada</button>' +
+      '<button onclick="saida(' + p.id + ')" class="text-yellow-600 font-bold mr-3 text-xs bg-yellow-50 px-2.5 py-1.5 rounded-lg">− Saída</button>' +
+      '<button onclick="excluirMaterial(' + p.id + ')" class="text-red-500 font-bold text-xs"><i class="fas fa-trash-alt"></i></button>' +
+    '</td>' : '';
+    return '<tr class="text-sm hover:bg-gray-50 dark:hover:bg-gray-700/40 transition">' +
+      '<td class="p-4 font-semibold">' + esc(p.nome) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(p.cat) + '</td>' +
+      '<td class="p-4 font-bold">' + p.qtd + ' <span class="text-xs font-normal text-gray-400">' + p.un + '</span></td>' +
+      '<td class="p-4">' + status + '</td>' + acoes + '</tr>';
+  }).join('') || '<tr><td colspan="5" class="p-10 text-center"><i class="fas fa-box-open text-2xl text-gray-300 mb-2"></i><div class="text-gray-400 text-sm font-semibold">Nenhum material encontrado</div><div class="text-gray-400 text-xs mt-1">Tente mudar a pesquisa ou o filtro.</div></td></tr>';
+
+  var cardsMobile = lista.map(function(p){
+    var badge = p.qtd <= p.min ? '<span class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-[10px] font-bold">ESTOQUE BAIXO</span>' : '<span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-bold">DISPONÍVEL</span>';
+    var acoes = esCoord ? '<div class="flex gap-2 pt-2 border-t dark:border-gray-700">' +
+      '<button onclick="entrada(' + p.id + ')" class="flex-1 bg-green-50 text-brandGreen font-bold py-1.5 rounded-lg text-xs">+ Entrada</button>' +
+      '<button onclick="saida(' + p.id + ')" class="flex-1 bg-yellow-50 text-yellow-700 font-bold py-1.5 rounded-lg text-xs">− Saída</button>' +
+      '<button onclick="excluirMaterial(' + p.id + ')" class="bg-red-50 text-red-500 p-2 rounded-lg text-xs"><i class="fas fa-trash-alt"></i></button></div>' : '';
+    return '<div class="p-4 text-sm space-y-2 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">' +
+      '<div class="flex justify-between items-start"><div><div class="font-bold text-base text-gray-900 dark:text-white">' + esc(p.nome) + '</div><div class="text-xs text-gray-400">' + esc(p.cat) + '</div></div><div>' + badge + '</div></div>' +
+      '<div class="text-xs text-gray-600 dark:text-gray-300">Quantidade: <strong class="text-sm">' + p.qtd + '</strong> ' + p.un + '</div>' + acoes + '</div>';
+  }).join('') || '<div class="p-8 text-center text-gray-400 text-xs">Nenhum material encontrado.</div>';
+
+  shell(head(esCoord ? 'Estoque' : 'Materiais Disponíveis', esCoord ? 'Gerenciamento de estoque' : 'Consulta de disponibilidade') +
+    (esCoord ? '<button onclick="formMat()" class="bg-brandGreen text-white p-3 px-4 rounded-xl font-bold text-xs sm:text-sm mb-4 w-full sm:w-auto shadow-sm">+ Novo material</button>' : '') +
+    filtros +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="hidden sm:block overflow-x-auto"><table class="w-full text-left"><thead><tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase"><th class="p-4">Material</th><th class="p-4">Categoria</th><th class="p-4">Quantidade</th><th class="p-4">Status</th>' + (esCoord ? '<th class="p-4 text-right">Ações</th>' : '') + '</tr></thead><tbody class="divide-y dark:divide-gray-700">' + tabelaDesktop + '</tbody></table></div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>');
+}
+function filtrarMateriaisV5(){
+  window.filtroMateriaisBusca = document.getElementById('filtro-material-busca')?.value || '';
+  window.filtroMateriaisStatus = document.getElementById('filtro-material-status')?.value || 'todos';
+  materiais();
+}
+function limparFiltrosMateriaisV5(){ window.filtroMateriaisBusca=''; window.filtroMateriaisStatus='todos'; materiais(); }
+
+function excluirMaterial(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  
+  pedirConfirmacao('Tem certeza que deseja excluir o item "' + p.nome + '" do estoque?', function(){
+    db.materiais = db.materiais.filter(function(x){ return x.id !== id; });
+    hist('Exclusão', p.nome, 'Removido', usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Item excluído com sucesso!', 'success');
+    materiais();
+  });
+}
+
+function formMat(){
+  if(perfil!=='Coordenador') return; 
+  shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+    formTitle('Novo material') +
+    '<label class="label">Nome</label><input id="mn" class="input" placeholder="Ex.: Papel A4">' +
+    '<label class="label">Categoria</label><select id="mc" class="input"><option>Material escolar</option><option>Administrativo</option><option>Limpeza</option><option>Manutenção</option><option>Outros</option></select>' +
+    '<label class="label">Quantidade</label><input id="mq" type="number" min="0" class="input">' +
+    '<label class="label">Estoque mínimo</label><input id="mm" type="number" min="0" class="input">' +
+    '<label class="label">Unidade</label><select id="mu" class="input"><option value="unidade">unidade</option><option value="pacote">pacote</option></select>' +
+    '<button onclick="saveMat()" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm">Salvar material</button>' +
+    '<button onclick="materiais()" class="w-full mt-2 text-gray-400 text-xs py-2">Cancelar</button>' +
+  '</div>');
+}
+
+function formTitle(t){ return '<h2 class="text-xl sm:text-2xl font-bold text-brandDarkBlue dark:text-white mb-4">' + t + '</h2>'; }
+
+function saveMat(){
+  var mn = document.getElementById('mn'), mc = document.getElementById('mc'), mq = document.getElementById('mq'), mm = document.getElementById('mm'), mu = document.getElementById('mu');
+  if(perfil!=='Coordenador') return; 
+  if(!mn.value || Number(mq.value)<0 || Number(mm.value)<0) return msg('Preencha os dados.', 'error');
+  
+  var qtd = Number(mq.value);
+  var min = Number(mm.value);
+  
+  db.materiais.push({id:Date.now(), nome:mn.value.trim(), cat:mc.value, qtd:qtd, min:min, un:mu.value});
+  hist('Cadastro', mn.value, qtd, 'Sistema');
+  save();
+
+  if(qtd <= min){
+    alertasLidos = false;
+    notify('Atenção: Item cadastrado com estoque baixo!', 'warning');
+  } else {
+    notify('Material cadastrado com sucesso!', 'success');
+  }
+
+  materiais();
+}
+
+function entrada(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      '<h2 class="text-xl font-bold text-brandGreen mb-1 flex items-center gap-2"><i class="fas fa-plus-circle"></i>Entrada de Estoque</h2>' +
+      '<p class="text-xs text-gray-500 mb-4">Item: <strong class="text-gray-800 dark:text-white">' + esc(p.nome) + '</strong> (Atual: ' + p.qtd + ' ' + p.un + ')</p>' +
+      '<label class="label">Quantidade a adicionar</label>' +
+      '<input id="qntEntrada" type="number" min="1" class="input mb-4" placeholder="Ex.: 10" autofocus>' +
+      '<button onclick="confirmarEntrada(' + p.id + ')" class="w-full bg-brandGreen text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Entrada</button>' +
+      '<button onclick="materiais()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function confirmarEntrada(id){
+  if(perfil !== 'Coordenador') return;
+  var qInput = document.getElementById('qntEntrada');
+  var q = Number(qInput ? qInput.value : 0);
+  if(!q || q <= 0){
+    msg('Por favor, informe uma quantidade válida.', 'error');
+    return;
+  }
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if(p){
+    p.qtd += q;
+    hist('Entrada', p.nome, '+' + q, usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Entrada de estoque realizada!', 'success');
+    materiais();
+  }
+}
+
+function saida(id){
+  if(perfil !== 'Coordenador') return;
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if (!p) return;
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      '<h2 class="text-xl font-bold text-red-500 mb-1 flex items-center gap-2"><i class="fas fa-minus-circle"></i>Saída de Estoque</h2>' +
+      '<p class="text-xs text-gray-500 mb-4">Item: <strong class="text-gray-800 dark:text-white">' + esc(p.nome) + '</strong> (Atual: ' + p.qtd + ' ' + p.un + ')</p>' +
+      '<label class="label">Quantidade a remover</label>' +
+      '<input id="qntSaida" type="number" min="1" max="' + p.qtd + '" class="input mb-4" placeholder="Ex.: 5" autofocus>' +
+      '<button onclick="confirmarSaida(' + p.id + ')" class="w-full bg-red-500 text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Saída</button>' +
+      '<button onclick="materiais()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function confirmarSaida(id){
+  if(perfil !== 'Coordenador') return;
+  var qInput = document.getElementById('qntSaida');
+  var q = Number(qInput ? qInput.value : 0);
+  var p = db.materiais.find(function(x){ return x.id === id; });
+  if(!q || q <= 0){
+    msg('Por favor, informe uma quantidade válida.', 'error');
+    return;
+  }
+  if(p){
+    if(q > p.qtd){
+      msg('Estoque insuficiente!', 'error');
+      return;
+    }
+    p.qtd -= q;
+    hist('Saída', p.nome, '-' + q, usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+
+    if(p.qtd <= p.min){
+      alertasLidos = false;
+      notify('Saída registrada! Item atingiu estoque mínimo.', 'warning');
+    } else {
+      notify('Saída registrada com sucesso!', 'success');
+    }
+
+    materiais();
+  }
+}
+
+function equipamentos(){
+  var esCoord = perfil === 'Coordenador';
+  var busca = (window.filtroEquipBusca || '').toLowerCase().trim();
+  var statusFiltro = window.filtroEquipStatus || 'todos';
+  var lista = db.equip.filter(function(x){
+    var texto = ((x.nome || '') + ' ' + (x.modelo || '') + ' ' + (x.cor || '')).toLowerCase();
+    var okBusca = !busca || texto.indexOf(busca) !== -1;
+    var status = Number(x.disp || 0) > 0 ? 'disponivel' : 'emprestado';
+    var okStatus = statusFiltro === 'todos' || status === statusFiltro;
+    return okBusca && okStatus;
+  });
+
+  var filtros = '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-3 sm:p-4 mb-4">' +
+    '<div class="flex flex-col lg:flex-row gap-3">' +
+      '<div class="relative flex-1"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>' +
+      '<input id="filtro-equip-busca" value="' + esc(window.filtroEquipBusca || '') + '" oninput="filtrarEquipV5()" class="input pl-9 !mt-0" placeholder="Pesquisar por equipamento, modelo ou cor..."></div>' +
+      '<select id="filtro-equip-status" onchange="filtrarEquipV5()" class="input !mt-0 lg:w-52">' +
+        '<option value="todos" ' + (statusFiltro==='todos'?'selected':'') + '>Todos os equipamentos</option>' +
+        '<option value="disponivel" ' + (statusFiltro==='disponivel'?'selected':'') + '>Com unidades disponíveis</option>' +
+        '<option value="emprestado" ' + (statusFiltro==='emprestado'?'selected':'') + '>Sem unidades disponíveis</option>' +
+      '</select>' +
+      '<button onclick="limparFiltrosEquipV5()" class="px-4 py-2.5 rounded-xl border text-gray-600 dark:text-gray-200 font-bold text-xs hover:bg-gray-50 dark:hover:bg-gray-700 transition"><i class="fas fa-rotate-left mr-1"></i>Limpar</button>' +
+    '</div>' +
+    '<div class="mt-2 text-[11px] text-gray-400"><i class="fas fa-filter mr-1"></i>Mostrando <strong class="text-gray-600 dark:text-gray-200">' + lista.length + '</strong> de ' + db.equip.length + ' equipamentos</div>' +
+  '</div>';
+
+  var tabelaDesktop = lista.map(function(x){
+    var acoes = esCoord ? '<td class="p-4 text-right"><button onclick="excluirEquip(' + x.id + ')" class="text-red-500 font-bold text-xs hover:underline"><i class="fas fa-trash-alt"></i></button></td>' : '';
+    return '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition">' +
+      '<td class="p-4 font-semibold">' + esc(x.nome) + '</td><td class="p-4 text-gray-500 dark:text-gray-400">' + esc(x.modelo) + '</td>' +
+      '<td class="p-4 text-xs font-semibold"><span class="inline-block px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600"><i class="fas fa-palette mr-1 text-brandGreen"></i>' + esc(x.cor || '-') + '</span></td>' +
+      '<td class="p-4 text-center font-bold">' + x.total + '</td><td class="p-4 text-center"><span class="bg-green-100 text-green-700 px-3 py-1 rounded-lg text-xs font-bold">' + x.disp + '</span></td>' +
+      '<td class="p-4 text-center"><span class="' + (x.emp ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-700 text-gray-500') + ' px-3 py-1 rounded-lg text-xs font-bold">' + x.emp + '</span></td>' + acoes + '</tr>';
+  }).join('') || '<tr><td colspan="7" class="p-10 text-center"><i class="fas fa-laptop text-2xl text-gray-300 mb-2"></i><div class="text-gray-400 text-sm font-semibold">Nenhum equipamento encontrado</div><div class="text-gray-400 text-xs mt-1">Tente mudar a pesquisa ou o filtro.</div></td></tr>';
+
+  var cardsMobile = lista.map(function(x){
+    var btnDel = esCoord ? '<button onclick="excluirEquip(' + x.id + ')" class="text-red-500 text-xs p-1"><i class="fas fa-trash-alt"></i></button>' : '';
+    return '<div class="p-4 space-y-2 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition"><div class="flex justify-between items-start"><div><div class="font-bold text-base text-gray-900 dark:text-white">' + esc(x.nome) + '</div><div class="text-xs text-gray-400">Modelo: ' + esc(x.modelo) + ' · Cor: <strong class="text-gray-700 dark:text-gray-200">' + esc(x.cor || '-') + '</strong></div></div>' + btnDel + '</div>' +
+      '<div class="grid grid-cols-3 gap-2 pt-1 text-center text-xs"><div class="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg"><div class="text-gray-400 text-[10px]">TOTAL</div><div class="font-bold text-sm">' + x.total + '</div></div>' +
+      '<div class="bg-green-50 dark:bg-gray-700 p-2 rounded-lg text-brandGreen"><div class="text-[10px]">DISP.</div><div class="font-bold text-sm">' + x.disp + '</div></div>' +
+      '<div class="bg-yellow-50 dark:bg-gray-700 p-2 rounded-lg text-yellow-700"><div class="text-[10px]">EMPR.</div><div class="font-bold text-sm">' + x.emp + '</div></div></div></div>';
+  }).join('') || '<div class="p-8 text-center text-gray-400 text-xs">Nenhum equipamento encontrado.</div>';
+
+  shell(head('Equipamentos','Consulta e cadastro de equipamentos por cor') +
+    (esCoord ? '<button onclick="formEquip()" class="bg-brandGreen text-white p-3 px-4 rounded-xl font-bold text-xs sm:text-sm mb-4 w-full sm:w-auto shadow-sm">+ Novo equipamento</button>' : '') + filtros +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden"><div class="hidden sm:block overflow-x-auto"><table class="w-full text-left"><thead><tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase"><th class="p-4">Item / Equipamento</th><th class="p-4">Marca / Modelo</th><th class="p-4">Cor</th><th class="p-4 text-center">Total</th><th class="p-4 text-center">Disponível</th><th class="p-4 text-center">Emprestado</th>' + (esCoord ? '<th class="p-4 text-right">Ação</th>' : '') + '</tr></thead><tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody></table></div><div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div></div>');
+}
+function filtrarEquipV5(){ window.filtroEquipBusca=document.getElementById('filtro-equip-busca')?.value||''; window.filtroEquipStatus=document.getElementById('filtro-equip-status')?.value||'todos'; equipamentos(); }
+function limparFiltrosEquipV5(){ window.filtroEquipBusca=''; window.filtroEquipStatus='todos'; equipamentos(); }
+
+function formEquip(){
+  if(perfil!=='Coordenador') return; 
+  shell(
+    '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
+      formTitle('Novo Equipamento') +
+      '<label class="label">Nome do Equipamento</label>' +
+      '<input id="en" class="input" placeholder="Ex.: Notebook, Tablet, Projetor">' +
+      '<label class="label">Marca / Modelo</label>' +
+      '<input id="em" class="input" placeholder="Ex.: Lenovo IdeaPad 3, Samsung Tab A">' +
+      '<label class="label">Cor de Identificação</label>' +
+      '<input id="ec" class="input" placeholder="Ex.: Azul, Amarelo, Vermelho, Preto">' +
+      '<label class="label">Quantidade Total</label>' +
+      '<input id="eq" type="number" min="1" value="1" class="input">' +
+      '<button onclick="saveEquip()" class="w-full bg-brandDarkBlue text-white p-3.5 rounded-xl font-bold mt-5 text-sm">Salvar Equipamento</button>' +
+      '<button onclick="equipamentos()" class="w-full mt-2 text-gray-400 text-xs py-2">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function saveEquip(){
+  var en = document.getElementById('en'), em = document.getElementById('em'), ec = document.getElementById('ec'), eq = document.getElementById('eq');
+  if(perfil!=='Coordenador') return;
+  var nome = en.value.trim();
+  var modelo = em.value.trim();
+  var cor = ec.value.trim();
+  var qtd = Number(eq.value);
+
+  if(!nome || !modelo || !cor || !qtd || qtd <= 0){
+    return msg('Preencha todos os campos.', 'error');
+  }
+
+  db.equip.push({
+    id: Date.now(),
+    nome: nome,
+    modelo: modelo,
+    cor: cor,
+    total: qtd,
+    disp: qtd,
+    emp: 0
+  });
+
+  hist('Cadastro', nome, qtd + ' un.', 'Modelo: ' + modelo + ' · Cor: ' + cor);
+  save();
+  notify('Equipamento salvo com sucesso!', 'success');
+  equipamentos();
+}
+
+function excluirEquip(id){
+  if(perfil !== 'Coordenador') return;
+  var e = db.equip.find(function(x){ return x.id === id; });
+  if (!e) return;
+  
+  pedirConfirmacao('Tem certeza que deseja excluir o equipamento "' + e.nome + '"?', function(){
+    db.equip = db.equip.filter(function(x){ return x.id !== id; });
+    hist('Exclusão', e.nome, 'Removido', usuarioAtual ? usuarioAtual.nome : 'Usuário');
+    save();
+    notify('Equipamento excluído com sucesso!', 'success');
+    equipamentos();
+  });
+}
+
+function emprestimos(){
+  var disponiveisMateriais = db.materiais.filter(function(p){ return Number(p.qtd || 0) > 0; });
+  var disponiveisEquipamentos = db.equip.filter(function(e){ return Number(e.disp || 0) > 0; });
+  var ativos = db.emp.filter(function(x){ return x.ativo; });
+
+  var optionsMateriais = disponiveisMateriais.length
+    ? disponiveisMateriais.map(function(p){
+        return '<option value="m:' + p.id + '">' + esc(p.nome) + ' · ' + p.qtd + ' disponíveis</option>';
+      }).join('')
+    : '<option value="">Nenhum material disponível</option>';
+
+  var optionsEquipamentos = disponiveisEquipamentos.length
+    ? disponiveisEquipamentos.map(function(e){
+        return '<option value="e:' + e.id + '">' + esc(e.nome) + ' · ' + esc(e.cor || '-') + ' · ' + e.disp + ' disponíveis</option>';
+      }).join('')
+    : '<option value="">Nenhum equipamento disponível</option>';
+
+  var nomeUsuarioVal = (perfil === 'Professor' && usuarioAtual && usuarioAtual.nome) ? esc(usuarioAtual.nome) : '';
+
+  var tabelaDesktop = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+    var subtitulo = e ? ('<div class="text-[11px] text-gray-400 mt-0.5">' +
+      'Modelo: ' + esc(e.modelo) + ' · Cor: <strong class="text-gray-600 dark:text-gray-200">' + esc(e.cor || '-') + '</strong></div>') : '';
+    var tipoBadge = e
+      ? '<span class="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold">Equipamento</span>'
+      : '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded text-[10px] font-bold">Material</span>';
+
+    return '<tr>' +
+      '<td class="p-4 font-semibold">' + esc(nome) + subtitulo + '</td>' +
+      '<td class="p-4">' + tipoBadge + '</td>' +
+      '<td class="p-4 font-bold text-brandLightBlue">' + (l.qtd || 1) + '</td>' +
+      '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
+      '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) +
+        (l.observacao ? '<div class="text-[11px] text-gray-400 mt-1">' + esc(l.observacao) + '</div>' : '') + '</td>' +
+      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) +
+        '<div class="mt-1">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
+        '<div>Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div></td>' +
+      '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 hover:bg-green-100 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum item emprestado no momento.</td></tr>';
+
+  var cardsMobile = ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+    var detalhe = e ? 'Modelo: ' + esc(e.modelo) + ' · Cor: ' + esc(e.cor || '-') : 'Material';
+    return '<div class="p-4 space-y-2 text-xs">' +
+      '<div class="flex justify-between items-start gap-3">' +
+        '<div>' +
+          '<div class="font-bold text-sm text-gray-900 dark:text-white">' + esc(nome) + '</div>' +
+          '<div class="text-gray-400 mt-0.5">' + detalhe + '</div>' +
+        '</div>' +
+        '<span class="bg-blue-50 text-brandLightBlue px-2 py-0.5 rounded font-bold text-xs whitespace-nowrap">' + (l.qtd || 1) + ' un.</span>' +
+      '</div>' +
+      '<div class="text-brandGreen font-semibold">Por: ' + esc(l.pessoa) + '</div>' +
+      '<div class="text-gray-500">Destino: ' + esc(l.destino) + '</div>' +
+      '<div class="text-[10px] text-gray-400">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
+      '<div class="text-[10px] text-gray-400">Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div>' +
+      (l.observacao ? '<div class="text-gray-500 mt-1">Observação: ' + esc(l.observacao) + '</div>' : '') +
+      '<div class="text-[10px] text-gray-400">Registrado em: ' + esc(l.data) + '</div>' +
+      '<button onclick="devolver(' + l.id + ')" class="w-full bg-brandGreen hover:opacity-90 text-white font-bold py-2 rounded-xl text-center mt-2">Devolver</button>' +
+    '</div>';
+  }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum item emprestado.</div>';
+
+  shell(
+    head('Empréstimos','Retiradas e devoluções') +
+    '<div class="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-sm border mb-5">' +
+      '<div class="flex items-center justify-between gap-3 mb-3">' +
+        '<div><h2 class="font-bold text-base">Registrar retirada</h2><p class="text-xs text-gray-400 mt-0.5">Materiais e equipamentos da escola</p></div>' +
+        '<span class="text-[10px] font-bold uppercase bg-green-50 text-brandGreen px-2.5 py-1 rounded-full">Online</span>' +
+      '</div>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        '<div class="sm:col-span-2">' +
+          '<label class="label">Item</label>' +
+          '<select id="le" class="input">' +
+            '<option value="">Selecione o item</option>' +
+            '<optgroup label="Materiais">' + optionsMateriais + '</optgroup>' +
+            '<optgroup label="Equipamentos">' + optionsEquipamentos + '</optgroup>' +
+          '</select>' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Quantidade a retirar</label>' +
+          '<input id="lq" type="number" min="1" class="input" placeholder="Ex.: 1" value="1">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Quem retirou?</label>' +
+          '<input id="lp" class="input" placeholder="Ex.: Prof. Carlos" value="' + nomeUsuarioVal + '">' +
+        '</div>' +
+        '<div class="sm:col-span-2">' +
+          '<label class="label">Sala / setor / destino</label>' +
+          '<input id="ld" class="input" placeholder="Ex.: Sala 5">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Data prevista para retirada</label>' +
+          '<input id="ldataRetirada" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Data prevista para devolução</label>' +
+          '<input id="ldataDevolucao" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
+        '</div>' +
+        '<div class="sm:col-span-2">' +
+          '<label class="label">Observação (opcional)</label>' +
+          '<textarea id="lobs" class="input" rows="2" placeholder="Finalidade ou informações adicionais"></textarea>' +
+        '</div>' +
+      '</div>' +
+      '<button onclick="addEmp()" class="bg-brandDarkBlue hover:opacity-90 text-white p-3.5 rounded-xl font-bold mt-4 w-full sm:w-auto px-6 text-xs sm:text-sm">' +
+        '<i class="fas fa-hand-holding mr-1.5"></i>Confirmar Retirada' +
+      '</button>' +
+    '</div>' +
+    '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
+      '<div class="p-4 border-b font-bold text-sm flex justify-between items-center gap-3">' +
+        '<span>Itens Emprestados Atualmente</span>' +
+        '<span class="bg-yellow-50 text-yellow-700 px-2.5 py-1 rounded-full text-[10px] font-bold">' + ativos.length + ' ativo(s)</span>' +
+      '</div>' +
+      '<div class="hidden sm:block overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead>' +
+            '<tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase">' +
+              '<th class="p-4">Item</th><th class="p-4">Tipo</th><th class="p-4">Qtd.</th><th class="p-4">Retirado por</th><th class="p-4">Destino / observação</th><th class="p-4">Datas</th><th class="p-4 text-right">Ação</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody class="divide-y dark:divide-gray-700 text-sm">' + tabelaDesktop + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="block sm:hidden divide-y dark:divide-gray-700">' + cardsMobile + '</div>' +
+    '</div>'
+  );
+}
+
+function addEmp(){
+  var le = document.getElementById('le'), lq = document.getElementById('lq'), lp = document.getElementById('lp'), ld = document.getElementById('ld');
+  var retiradaEl = document.getElementById('ldataRetirada');
+  var devolucaoEl = document.getElementById('ldataDevolucao');
+  var obsEl = document.getElementById('lobs');
+  var valor = le ? le.value : '';
+  var q = Number(lq ? lq.value : 0);
+  var pessoa = lp ? lp.value.trim() : '';
+  var destino = ld ? ld.value.trim() : '';
+  var dataPrevistaRetirada = retiradaEl ? retiradaEl.value : '';
+  var dataPrevistaDevolucao = devolucaoEl ? devolucaoEl.value : '';
+  var observacao = obsEl ? obsEl.value.trim() : '';
+
+  if(!valor) return msg('Selecione um material ou equipamento.', 'error');
+  if(!q || q <= 0) return msg('Informe uma quantidade válida.', 'error');
+  if(!pessoa || !destino) return msg('Preencha quem retirou e a sala/setor.', 'error');
+  if(!dataPrevistaRetirada || !dataPrevistaDevolucao) return msg('Informe as datas previstas de retirada e devolução.', 'error');
+  if(dataPrevistaDevolucao < dataPrevistaRetirada) return msg('A data prevista de devolução não pode ser anterior à retirada.', 'error');
+
+  var partes = valor.split(':');
+  var tipo = partes[0];
+  var id = Number(partes[1]);
+  var p = null, e = null;
+
+  if(tipo === 'm'){
+    p = db.materiais.find(function(x){ return Number(x.id) === id; });
+    if(!p) return msg('Material não encontrado.', 'error');
+    if(q > Number(p.qtd || 0))
+      return msg('Quantidade indisponível! Disponíveis: ' + Number(p.qtd || 0), 'error');
+  } else if(tipo === 'e'){
+    e = db.equip.find(function(x){ return Number(x.id) === id; });
+    if(!e) return msg('Equipamento não encontrado.', 'error');
+    if(q > Number(e.disp || 0))
+      return msg('Quantidade indisponível! Disponíveis: ' + Number(e.disp || 0), 'error');
+  } else {
+    return msg('Item inválido.', 'error');
+  }
+
+  var data = new Date().toLocaleString('pt-BR');
+
+  if(p){
+    p.qtd -= q;
+  } else if(e){
+    e.disp -= q;
+    e.emp = Number(e.emp || 0) + q;
+  }
+
+  db.emp.unshift({
+    id: Date.now(),
+    materialId: p ? p.id : null,
+    equipId: e ? e.id : null,
+    qtd: q,
+    pessoa: pessoa,
+    destino: destino,
+    data: data,
+    dataPrevistaRetirada: dataPrevistaRetirada,
+    dataPrevistaDevolucao: dataPrevistaDevolucao,
+    observacao: observacao,
+    ativo: true,
+    tipo: e ? 'Equipamento' : 'Material',
+    cor: e ? (e.cor || '') : '',
+    modelo: e ? (e.modelo || '') : ''
+  });
+
+  var nomeItem = e ? e.nome : p.nome;
+  var detalhe = e
+    ? pessoa + ' · ' + destino + ' · Modelo: ' + e.modelo + ' · Cor: ' + e.cor
+    : pessoa + ' · ' + destino;
+
+  hist('Empréstimo', nomeItem, q + ' un.', detalhe);
+  save();
+
+  if(p && p.qtd <= p.min){
+    alertasLidos = false;
+    notify('Retirada registrada! Item atingiu o estoque mínimo.', 'warning');
+  } else {
+    notify('Empréstimo registrado com sucesso!', 'success');
+  }
+
+  emprestimos();
+}
+
+function devolver(id){
+  var l = db.emp.find(function(x){ return x.id === id; });
+  if(!l) return;
+
+  var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+  var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+  var qtd = Number(l.qtd || 0);
+
+  if(e){
+    e.disp = Number(e.disp || 0) + qtd;
+    e.emp = Math.max(0, Number(e.emp || 0) - qtd);
+  } else if(p){
+    p.qtd += qtd;
+  }
+
+  l.ativo = false;
+  l.dataDevolucao = new Date().toLocaleString('pt-BR');
+
+  var nomeItem = e ? e.nome : (p ? p.nome : 'Item');
+  var detalhe = e
+    ? l.pessoa + ' · ' + l.destino + ' · Modelo: ' + (e.modelo || l.modelo || '-') + ' · Cor: ' + (e.cor || l.cor || '-')
+    : l.pessoa + ' · ' + l.destino;
+
+  hist('Devolução', nomeItem, qtd + ' un.', detalhe);
+  save();
+  notify('Devolução realizada com sucesso!', 'success');
+  emprestimos();
+}
+
+var historicoFiltro = { busca:'', tipo:'', periodo:'todos' };
+
+function hist(tipo,item,qtd,det){
+  db.hist.unshift({
+    id: Date.now() + Math.floor(Math.random()*1000),
+    data: new Date().toLocaleString('pt-BR'),
+    ts: new Date().toISOString(),
+    tipo: tipo, item: item, qtd: qtd, det: det
+  });
+}
+
+function historicoCorTipo(tipo){
+  var t = String(tipo || '').toLowerCase();
+  if(t === 'entrada') return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+  if(t === 'saída' || t === 'saida') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+  if(t === 'empréstimo' || t === 'emprestimo') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+  if(t === 'devolução' || t === 'devolucao') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+  if(t === 'cadastro') return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
+  if(t === 'exclusão' || t === 'exclusao') return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
+  return 'bg-blue-50 text-brandLightBlue dark:bg-blue-900/30 dark:text-blue-300';
+}
+
+function historicoDataFallback(valor){
+  if(!valor) return 0;
+  var m = String(valor).match(/(\d{1,2})\/(\d{1,2})\/(\d{4}).*?(\d{1,2}):(\d{2})/);
+  if(!m) return 0;
+  return new Date(Number(m[3]),Number(m[2])-1,Number(m[1]),Number(m[4]),Number(m[5])).getTime();
+}
+
+function historicoDadosFiltrados(){
+  var busca = String(historicoFiltro.busca || '').trim().toLowerCase();
+  var tipo = String(historicoFiltro.tipo || '').toLowerCase();
+  var periodo = historicoFiltro.periodo || 'todos';
+  var agora = Date.now(), limite = 0;
+  if(periodo === 'hoje') limite = new Date().setHours(0,0,0,0);
+  if(periodo === '7dias') limite = agora - 7*24*60*60*1000;
+  if(periodo === '30dias') limite = agora - 30*24*60*60*1000;
+  return (Array.isArray(db.hist) ? db.hist : []).filter(function(h){
+    var texto = [h.tipo,h.item,h.qtd,h.det,h.data].join(' ').toLowerCase();
+    if(busca && texto.indexOf(busca) === -1) return false;
+    if(tipo && String(h.tipo || '').toLowerCase() !== tipo) return false;
+    if(limite){
+      var d = h.ts ? new Date(h.ts).getTime() : historicoDataFallback(h.data);
+      if(!d || d < limite) return false;
+    }
+    return true;
+  });
+}
+
+function historicoAtualizar(){
+  var lista = historicoDadosFiltrados();
+  var total = Array.isArray(db.hist) ? db.hist.length : 0;
+  var contador = document.getElementById('hist-contador');
+  var resumo = document.getElementById('hist-resumo');
+  var tbody = document.getElementById('hist-tbody');
+  var mobile = document.getElementById('hist-mobile');
+  if(contador) contador.textContent = lista.length + ' de ' + total + ' movimentações';
+  if(resumo){
+    function c(t){ return lista.filter(function(h){return String(h.tipo||'').toLowerCase()===t;}).length; }
+    resumo.innerHTML = '<span><b>'+lista.length+'</b> encontrados</span>' +
+      '<span class="text-amber-600"><b>'+c('empréstimo')+'</b> empréstimos</span>' +
+      '<span class="text-blue-600"><b>'+c('devolução')+'</b> devoluções</span>' +
+      '<span class="text-green-600"><b>'+c('entrada')+'</b> entradas</span>' +
+      '<span class="text-red-600"><b>'+c('saída')+'</b> saídas</span>';
+  }
+  if(tbody){
+    tbody.innerHTML = lista.length ? lista.map(function(h){
+      return '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">' +
+        '<td class="p-4 text-xs text-gray-400 whitespace-nowrap">'+esc(h.data||'-')+'</td>' +
+        '<td class="p-4"><span class="'+historicoCorTipo(h.tipo)+' px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap">'+esc(h.tipo||'-')+'</span></td>' +
+        '<td class="p-4 font-semibold text-gray-800 dark:text-white">'+esc(h.item||'-')+'</td>' +
+        '<td class="p-4 font-bold whitespace-nowrap">'+esc(h.qtd||'-')+'</td>' +
+        '<td class="p-4 text-gray-500 dark:text-gray-400 text-xs min-w-[240px]">'+esc(h.det||'-')+'</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="p-10 text-center text-gray-400"><i class="fas fa-filter-circle-xmark text-2xl mb-2 block"></i>Nenhuma movimentação corresponde aos filtros.</td></tr>';
+  }
+  if(mobile){
+    mobile.innerHTML = lista.length ? lista.map(function(h){
+      return '<div class="p-4 space-y-2 border-b dark:border-gray-700 last:border-b-0">' +
+        '<div class="flex justify-between items-start gap-2"><span class="'+historicoCorTipo(h.tipo)+' px-2 py-0.5 rounded font-bold text-[10px]">'+esc(h.tipo||'-')+'</span><span class="text-[10px] text-gray-400">'+esc(h.data||'-')+'</span></div>' +
+        '<div class="font-bold text-sm text-gray-900 dark:text-white">'+esc(h.item||'-')+'</div>' +
+        '<div class="flex items-center justify-between text-xs"><span class="text-gray-500">Quantidade</span><b>'+esc(h.qtd||'-')+'</b></div>' +
+        '<div class="text-xs text-gray-500 dark:text-gray-400">'+esc(h.det||'-')+'</div></div>';
+    }).join('') : '<div class="p-8 text-center text-gray-400 text-xs">Nenhuma movimentação corresponde aos filtros.</div>';
+  }
+}
+
+function filtrarHistorico(){
+  historicoFiltro.busca = document.getElementById('hist-busca')?.value || '';
+  historicoFiltro.tipo = document.getElementById('hist-tipo')?.value || '';
+  historicoFiltro.periodo = document.getElementById('hist-periodo')?.value || 'todos';
+  historicoAtualizar();
+}
+function limparFiltrosHistorico(){
+  historicoFiltro={busca:'',tipo:'',periodo:'todos'};
+  var b=document.getElementById('hist-busca'),t=document.getElementById('hist-tipo'),p=document.getElementById('hist-periodo');
+  if(b)b.value=''; if(t)t.value=''; if(p)p.value='todos'; historicoAtualizar();
+}
+function exportarHistoricoCSV(){
+  var lista=historicoDadosFiltrados();
+  if(!lista.length){notify('Não há movimentações para exportar.','error');return;}
+  var linhas=[['Data','Tipo','Item','Quantidade','Detalhes']];
+  lista.forEach(function(h){linhas.push([h.data||'',h.tipo||'',h.item||'',h.qtd||'',h.det||'']);});
+  var csv='\uFEFF'+linhas.map(function(l){return l.map(function(v){return '"'+String(v).replace(/"/g,'""')+'"';}).join(';');}).join('\r\n');
+  var url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  var a=document.createElement('a');a.href=url;a.download='historico-logistica-simples-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);notify('Histórico exportado com sucesso.','success');
+}
+
+function historico(){
+  if(perfil !== 'Coordenador') return msg('Acesso negado. Apenas coordenadores podem visualizar o histórico.','error');
+  shell(
+    head('Histórico','Controle completo das movimentações do almoxarifado') +
+    '<div class="space-y-4">' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">' +
+        '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4"><div class="text-[10px] uppercase font-bold text-gray-400">Total de registros</div><div class="text-2xl font-black text-brandDarkBlue dark:text-white mt-1">'+((db.hist||[]).length)+'</div></div>' +
+        '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4"><div class="text-[10px] uppercase font-bold text-gray-400">Empréstimos ativos</div><div class="text-2xl font-black text-amber-600 mt-1">'+db.emp.filter(function(x){return x.ativo;}).length+'</div></div>' +
+        '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4"><div class="text-[10px] uppercase font-bold text-gray-400">Itens em circulação</div><div class="text-2xl font-black text-blue-600 mt-1">'+db.emp.filter(function(x){return x.ativo;}).reduce(function(a,x){return a+Number(x.qtd||0);},0)+'</div></div>' +
+      '</div>' +
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4">' +
+        '<div class="flex flex-col lg:flex-row gap-3"><div class="flex-1 relative"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i><input id="hist-busca" oninput="filtrarHistorico()" class="input pl-9" placeholder="Pesquisar por item, usuário, ação ou detalhes..."></div>' +
+        '<select id="hist-tipo" onchange="filtrarHistorico()" class="input lg:w-48"><option value="">Todas as ações</option><option value="Entrada">Entradas</option><option value="Saída">Saídas</option><option value="Empréstimo">Empréstimos</option><option value="Devolução">Devoluções</option><option value="Cadastro">Cadastros</option><option value="Exclusão">Exclusões</option></select>' +
+        '<select id="hist-periodo" onchange="filtrarHistorico()" class="input lg:w-44"><option value="todos">Todo o período</option><option value="hoje">Hoje</option><option value="7dias">Últimos 7 dias</option><option value="30dias">Últimos 30 dias</option></select></div>' +
+        '<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-3 pt-3 border-t dark:border-gray-700"><div id="hist-resumo" class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500"></div><div class="flex gap-2"><button onclick="limparFiltrosHistorico()" class="px-3 py-2 rounded-xl border text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700"><i class="fas fa-rotate-left mr-1"></i>Limpar</button><button onclick="exportarHistoricoCSV()" class="px-3 py-2 rounded-xl bg-brandDarkBlue text-white text-xs font-bold hover:opacity-90"><i class="fas fa-file-csv mr-1"></i>Exportar CSV</button></div></div>' +
+        '<div id="hist-contador" class="text-[10px] text-gray-400 mt-2"></div></div>' +
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden"><div class="hidden sm:block overflow-x-auto"><table class="w-full text-left"><thead><tr class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs uppercase"><th class="p-4">Data / Hora</th><th class="p-4">Ação</th><th class="p-4">Item</th><th class="p-4">Quantidade</th><th class="p-4">Detalhes</th></tr></thead><tbody id="hist-tbody" class="divide-y dark:divide-gray-700 text-sm"></tbody></table></div><div id="hist-mobile" class="block sm:hidden"></div></div>' +
+    '</div>'
+  );
+  var t=document.getElementById('hist-tipo'),p=document.getElementById('hist-periodo');
+  if(t)t.value=historicoFiltro.tipo||''; if(p)p.value=historicoFiltro.periodo||'todos';
+  var b=document.getElementById('hist-busca'); if(b)b.value=historicoFiltro.busca||'';
+  historicoAtualizar();
+}
+
+function alertas()
+{
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  
+  alertasLidos = true;
+
+  var a = db.materiais.filter(function(p){ return p.qtd <= p.min; });
+  
+  var lista = a.length ? a.map(function(p){
+    return '<div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl mb-3 text-red-800 text-xs sm:text-sm">' +
+      '<b>' + esc(p.nome) + '</b> está com ' + p.qtd + ' ' + p.un + '. Mínimo: ' + p.min + ' ' + p.un + '.' +
+    '</div>';
+  }).join('') : '<div class="text-center p-8 text-green-600 font-semibold text-sm">✓ Nenhum item abaixo do estoque mínimo.</div>';
+
+  shell(
+    head('Alertas','Estoque crítico') +
+    '<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border">' + lista + '</div>'
+  );
+}
+
+function imprimirRelatorio(){
+  var ativos = db.emp.filter(function(x){ return x.ativo; });
+  var printArea = document.getElementById('print-area');
+  var dataHoje = new Date().toLocaleString('pt-BR');
+  
+  var tabelaEmp = ativos.length ? ativos.map(function(l){
+    var p = db.materiais.find(function(x){ return Number(x.id) === Number(l.materialId); });
+    var e = db.equip.find(function(x){ return Number(x.id) === Number(l.equipId); });
+    var nome = (p && p.nome) ? p.nome : ((e && e.nome) ? e.nome : 'Item');
+
+    return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(nome) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + (l.qtd || 1) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">' + esc(l.pessoa) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(l.destino) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + l.data + '</td>' +
+    '</tr>';
+  }).join('') : '<tr><td colspan="5" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Nenhum material em posse de terceiros no momento.</td></tr>';
+
+  var tabelaAlerta = db.materiais.filter(function(p){ return p.qtd <= p.min; }).map(function(p){
+    return '<tr style="border-bottom: 1px solid #e2e8f0;">' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(p.nome) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1;">' + esc(p.cat) + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; color: #dc2626; font-weight: bold;">' + p.qtd + ' ' + p.un + '</td>' +
+      '<td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">' + p.min + ' ' + p.un + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="4" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Todos os itens estão com saldo dentro do esperado.</td></tr>';
+
+  var secaoCoord = perfil === 'Coordenador' ? 
+    '<h2 style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #0F2C59;">Resumo do Estoque em Alerta</h2>' +
+    '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">' +
+      '<thead>' +
+        '<tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Material</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Categoria</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Saldo Atual</th>' +
+          '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Mínimo</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + tabelaAlerta + '</tbody>' +
+    '</table>' : '';
+
+  if (printArea) {
+    printArea.innerHTML = 
+      '<div style="font-family: sans-serif; color: #111;">' +
+        '<div style="border-bottom: 2px solid #0F2C59; padding-bottom: 12px; margin-bottom: 20px;">' +
+          '<h1 style="font-size: 20px; font-weight: bold; color: #0F2C59; margin: 0;">Relatório do Almoxarifado - ' + esc(escola) + '</h1>' +
+          '<p style="font-size: 11px; color: #666; margin: 4px 0 0 0;">Emitido em: ' + dataHoje + ' | Operador: ' + esc(perfil) + '</p>' +
+        '</div>' +
+        '<h2 style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #2E7D32;">Materiais Atualmente Emprestados</h2>' +
+        '<table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 12px;">' +
+          '<thead>' +
+            '<tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Item / Material</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">Qtd.</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Retirado por</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Destino / Sala</th>' +
+              '<th style="padding: 6px 8px; border: 1px solid #cbd5e1;">Data / Hora</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody>' + tabelaEmp + '</tbody>' +
+        '</table>' +
+        secaoCoord +
+      '</div>';
+  }
+
+  window.print();
+}
+
+function exportarRelatorioCSV(tipo){
+  var linhas=[], nome='relatorio';
+  if(tipo==='estoque'){
+    nome='estoque'; linhas.push(['Material','Categoria','Quantidade','Unidade','Estoque mínimo','Status']);
+    (db.materiais||[]).forEach(function(p){ linhas.push([p.nome,p.cat,p.qtd,p.un,p.min,Number(p.qtd)<=Number(p.min)?'Estoque baixo':'Normal']); });
+  } else if(tipo==='equipamentos'){
+    nome='equipamentos'; linhas.push(['Equipamento','Modelo','Cor','Total','Disponível','Emprestado']);
+    (db.equip||[]).forEach(function(e){ linhas.push([e.nome,e.modelo,e.cor||e.pat,e.total,e.disp,e.emp]); });
+  } else if(tipo==='historico'){
+    nome='movimentacoes'; linhas.push(['Data','Ação','Item','Quantidade','Detalhes']);
+    (db.hist||[]).forEach(function(h){ linhas.push([h.data,h.tipo,h.item,h.qtd,h.det]); });
+  } else {
+    nome='emprestimos-ativos'; linhas.push(['Item','Quantidade','Responsável','Destino','Data']);
+    (db.emp||[]).filter(function(x){return x.ativo;}).forEach(function(l){
+      var p=db.materiais.find(function(x){return Number(x.id)===Number(l.materialId)}), e=db.equip.find(function(x){return Number(x.id)===Number(l.equipId)});
+      linhas.push([(p&&p.nome)||(e&&e.nome)||'Item',l.qtd||1,l.pessoa,l.destino,l.data]);
+    });
+  }
+  function csvVal(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }
+  var csv='\ufeff'+linhas.map(function(r){return r.map(csvVal).join(';')}).join('\r\n');
+  var url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  var a=document.createElement('a'); a.href=url; a.download='logistica-simples-'+nome+'-'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  notify('Arquivo CSV exportado com sucesso.','success');
+}
+
+
+
+/* =========================================================
+   V8 — BACKUP E RECUPERAÇÃO
+   - Exportação completa dos dados da escola em JSON.
+   - Senhas em texto nunca entram no backup; apenas hashes/salts.
+   - Restauração exclusiva do Coordenador, com confirmação.
+   ========================================================= */
+function criarBackupJSON(){
+  if(perfil !== 'Coordenador'){
+    notify('Apenas o Coordenador pode gerar backups.', 'error');
+    return;
+  }
+  var usuariosBackup = (Array.isArray(usuarios) ? usuarios : []).map(function(u){
+    var c = Object.assign({}, u);
+    delete c.senha;
+    return c;
+  });
+  var pacote = {
+    app: 'Logística Simples',
+    versao: 'V8',
+    tipo: 'backup',
+    escola: escolaAtual || escola || '',
+    geradoEm: new Date().toISOString(),
+    dados: {
+      usuarios: usuariosBackup,
+      db: db || dadosIniciais()
+    }
+  };
+  var json = JSON.stringify(pacote, null, 2);
+  var blob = new Blob([json], {type:'application/json;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  var nomeEscola = String(pacote.escola || 'escola').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
+  a.href = url;
+  a.download = 'backup-logistica-simples-' + (nomeEscola || 'escola') + '-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  notify('Backup gerado com sucesso.', 'success');
+}
+
+function abrirRestauracaoBackup(){
+  if(perfil !== 'Coordenador'){
+    notify('Apenas o Coordenador pode restaurar backups.', 'error');
+    return;
+  }
+  var input = document.getElementById('backup-file-input');
+  if(input) input.click();
+}
+
+function selecionarBackupArquivo(input){
+  var arquivo = input && input.files ? input.files[0] : null;
+  if(!arquivo) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try{
+      var pacote = JSON.parse(reader.result);
+      if(!pacote || pacote.tipo !== 'backup' || pacote.app !== 'Logística Simples' || !pacote.dados){
+        throw new Error('Arquivo de backup inválido.');
+      }
+      if(!pacote.dados.db || !Array.isArray(pacote.dados.db.materiais) || !Array.isArray(pacote.dados.db.equip)){
+        throw new Error('Estrutura de dados inválida.');
+      }
+      var escolaBackup = String(pacote.escola || '').trim();
+      if(escolaBackup && escolaAtual && escolaBackup.toLowerCase() !== escolaAtual.toLowerCase()){
+        if(!confirm('Este backup pertence à escola "' + escolaBackup + '" e você está logado como "' + escolaAtual + '". Deseja continuar mesmo assim?')){
+          input.value='';
+          return;
+        }
+      }
+      var ok = confirm('Atenção: restaurar este backup substituirá os dados atuais desta escola. Esta ação não pode ser desfeita automaticamente. Deseja continuar?');
+      if(!ok){ input.value=''; return; }
+
+      usuarios = normalizarUsuarios(Array.isArray(pacote.dados.usuarios) ? pacote.dados.usuarios : []);
+      normalizarDb(pacote.dados.db);
+      usarEscola(escolaAtual || escolaBackup);
+      salvarUsuariosLocalSeguro();
+      localStorage.setItem(K, JSON.stringify(db));
+
+      salvarDadosOnline().then(function(salvou){
+        if(!salvou){
+          notify('Backup restaurado neste dispositivo, mas não foi possível sincronizar com o servidor.', 'warning');
+          return;
+        }
+        notify('Backup restaurado e sincronizado com sucesso.', 'success');
+        dashboard();
+      }).catch(function(err){
+        console.error(err);
+        notify('Backup restaurado localmente, mas ocorreu um erro na sincronização.', 'warning');
+      });
+    }catch(err){
+      console.error(err);
+      notify('Não foi possível restaurar o backup: arquivo inválido.', 'error');
+    }finally{
+      input.value='';
+    }
+  };
+  reader.readAsText(arquivo);
+}
+
+function backupTela(){
+  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  var totalMat = (db.materiais||[]).length;
+  var totalEq = (db.equip||[]).length;
+  var totalEmp = (db.emp||[]).length;
+  var totalHist = (db.hist||[]).length;
+  shell(head('Backup e Recuperação','Proteja os dados do almoxarifado e restaure uma cópia quando necessário.')+
+    '<input id="backup-file-input" type="file" accept="application/json,.json" class="hidden" onchange="selecionarBackupArquivo(this)">'+
+    '<div class="space-y-5">'+
+      '<div class="bg-gradient-to-br from-brandDarkBlue to-blue-700 text-white rounded-3xl p-5 sm:p-7 shadow-sm">'+
+        '<div class="flex flex-col sm:flex-row sm:items-center gap-5 justify-between">'+
+          '<div><div class="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center mb-3"><i class="fas fa-shield-halved text-xl"></i></div><h2 class="text-lg sm:text-xl font-black">Cópia de segurança da escola</h2><p class="text-xs sm:text-sm text-blue-100 mt-1 max-w-xl">Exporte uma cópia dos dados atuais para guardar em um local seguro. O arquivo não contém senhas em texto.</p></div>'+ 
+          '<button onclick="criarBackupJSON()" class="shrink-0 bg-white text-brandDarkBlue px-5 py-3 rounded-xl text-xs font-black hover:bg-blue-50 transition"><i class="fas fa-download mr-2"></i>Gerar backup</button>'+ 
+        '</div>'+ 
+      '</div>'+ 
+      '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">'+
+        stat('boxes','Materiais',totalMat,'brandDarkBlue')+
+        stat('laptop','Equipamentos',totalEq,'brandGreen')+
+        stat('arrow-right-arrow-left','Empréstimos',totalEmp,'amber-600')+
+        stat('clock-rotate-left','Movimentações',totalHist,'red-500')+
+      '</div>'+ 
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5">'+
+        '<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">'+
+          '<div><h3 class="font-bold">Restaurar uma cópia</h3><p class="text-xs text-gray-500 mt-1">Use somente um arquivo JSON gerado pelo Logística Simples. A restauração substitui os dados atuais.</p></div>'+ 
+          '<button onclick="abrirRestauracaoBackup()" class="border border-brandDarkBlue text-brandDarkBlue dark:text-blue-300 dark:border-blue-400 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-blue-50 dark:hover:bg-gray-700 transition"><i class="fas fa-upload mr-2"></i>Selecionar backup</button>'+ 
+        '</div>'+ 
+        '<div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">'+
+          '<div class="rounded-xl bg-blue-50 dark:bg-gray-700 p-3"><b class="block text-brandDarkBlue dark:text-blue-300 mb-1">1. Gerar</b>Baixe uma cópia dos dados.</div>'+ 
+          '<div class="rounded-xl bg-amber-50 dark:bg-gray-700 p-3"><b class="block text-amber-700 dark:text-amber-300 mb-1">2. Guardar</b>Mantenha o arquivo em local seguro.</div>'+ 
+          '<div class="rounded-xl bg-green-50 dark:bg-gray-700 p-3"><b class="block text-green-700 dark:text-green-300 mb-1">3. Restaurar</b>Selecione o JSON quando precisar recuperar.</div>'+ 
+        '</div>'+ 
+      '</div>'+ 
+      '<div class="bg-gray-50 dark:bg-gray-800/70 rounded-2xl border p-4 text-xs text-gray-500 dark:text-gray-400"><i class="fas fa-circle-info mr-1 text-brandDarkBlue"></i><b>Recomendação:</b> faça backups antes de alterações importantes e mantenha pelo menos uma cópia fora do computador principal.</div>'+ 
+    '</div>');
+}
+
+function relatorios(){
+  var materiais=db.materiais||[], equipamentos=db.equip||[], ativos=(db.emp||[]).filter(function(x){return x.ativo;});
+  var totalMateriais=materiais.reduce(function(a,p){return a+Number(p.qtd||0)},0);
+  var totalEquip=equipamentos.reduce(function(a,e){return a+Number(e.total||0)},0);
+  var disponiveis=equipamentos.reduce(function(a,e){return a+Number(e.disp||0)},0);
+  var emUso=ativos.reduce(function(a,x){return a+Number(x.qtd||1)},0);
+  var baixo=materiais.filter(function(p){return Number(p.qtd||0)<=Number(p.min||0)});
+  var topBaixo=baixo.length?baixo.map(function(p){return '<tr class="border-t dark:border-gray-700"><td class="p-3 font-semibold">'+esc(p.nome)+'</td><td class="p-3 text-gray-500">'+esc(p.cat||'-')+'</td><td class="p-3 font-bold text-red-600">'+Number(p.qtd||0)+' '+esc(p.un||'')+'</td><td class="p-3">'+Number(p.min||0)+' '+esc(p.un||'')+'</td></tr>'}).join(''):'<tr><td colspan="4" class="p-5 text-center text-green-600">Todos os materiais estão acima do mínimo.</td></tr>';
+  var listaEquip=equipamentos.length?equipamentos.map(function(e){return '<tr class="border-t dark:border-gray-700"><td class="p-3 font-semibold">'+esc(e.nome)+'</td><td class="p-3 text-gray-500">'+esc(e.modelo||'-')+'</td><td class="p-3">'+Number(e.total||0)+'</td><td class="p-3 font-bold text-green-600">'+Number(e.disp||0)+'</td><td class="p-3 font-bold text-amber-600">'+Number(e.emp||0)+'</td></tr>'}).join(''):'<tr><td colspan="5" class="p-5 text-center text-gray-400">Nenhum equipamento cadastrado.</td></tr>';
+  var listaEmp=ativos.length?ativos.map(function(l){var p=materiais.find(function(x){return Number(x.id)===Number(l.materialId)}),e=equipamentos.find(function(x){return Number(x.id)===Number(l.equipId)});return '<tr class="border-t dark:border-gray-700"><td class="p-3 font-semibold">'+esc((p&&p.nome)||(e&&e.nome)||'Item')+'</td><td class="p-3">'+Number(l.qtd||1)+'</td><td class="p-3">'+esc(l.pessoa||'-')+'</td><td class="p-3">'+esc(l.destino||'-')+'</td><td class="p-3 text-xs text-gray-500">'+esc(l.data||'-')+'</td></tr>'}).join(''):'<tr><td colspan="5" class="p-5 text-center text-gray-400">Nenhum empréstimo ativo.</td></tr>';
+  shell(head('Relatórios','Visão consolidada e exportação de dados do almoxarifado')+
+    '<div class="space-y-5">'+
+      '<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">'+
+        stat('boxes','Tipos de materiais',materiais.length,'brandDarkBlue')+stat('cubes','Unidades em estoque',totalMateriais,'brandGreen')+stat('laptop','Equipamentos disponíveis',disponiveis,'brandLightBlue')+stat('hand-holding','Itens emprestados',emUso,'red-500')+
+      '</div>'+
+      '<div class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4 sm:p-5"><div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3"><div><h2 class="font-bold">Central de exportação</h2><p class="text-xs text-gray-500 mt-1">Baixe os dados em CSV para abrir no Excel ou Google Planilhas.</p></div><button onclick="imprimirRelatorio()" class="bg-brandDarkBlue text-white px-4 py-2.5 rounded-xl text-xs font-bold"><i class="fas fa-print mr-2"></i>Imprimir resumo</button></div><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">'+
+        [['estoque','Estoque de materiais','boxes'],['equipamentos','Equipamentos','laptop'],['emprestimos','Empréstimos ativos','hand-holding'],['historico','Histórico de movimentações','clock']].map(function(x){return '<button onclick="exportarRelatorioCSV(\''+x[0]+'\')" class="flex items-center gap-3 text-left border dark:border-gray-700 rounded-xl p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition"><span class="w-9 h-9 rounded-lg bg-blue-50 text-brandDarkBlue flex items-center justify-center"><i class="fas fa-'+x[2]+'"></i></span><span class="flex-1 min-w-0"><span class="block text-xs font-bold">'+x[1]+'</span><span class="block text-[10px] text-gray-400 mt-1">Exportar CSV</span></span><i class="fas fa-download text-gray-400 text-xs"></i></button>'}).join('')+
+      '</div></div>'+
+      '<div class="grid grid-cols-1 xl:grid-cols-2 gap-5">'+
+        '<section class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden"><div class="p-4 flex justify-between items-center"><div><h2 class="font-bold">Materiais em estoque baixo</h2><p class="text-[11px] text-gray-400 mt-1">'+baixo.length+' item(ns) precisam de atenção</p></div><span class="rounded-full bg-red-50 text-red-600 px-2.5 py-1 text-xs font-bold">'+baixo.length+'</span></div><div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-500 uppercase"><tr><th class="p-3">Material</th><th class="p-3">Categoria</th><th class="p-3">Saldo</th><th class="p-3">Mínimo</th></tr></thead><tbody>'+topBaixo+'</tbody></table></div></section>'+
+        '<section class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden"><div class="p-4"><h2 class="font-bold">Posição dos equipamentos</h2><p class="text-[11px] text-gray-400 mt-1">Total, disponíveis e emprestados por equipamento</p></div><div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-500 uppercase"><tr><th class="p-3">Equipamento</th><th class="p-3">Modelo</th><th class="p-3">Total</th><th class="p-3">Disp.</th><th class="p-3">Emp.</th></tr></thead><tbody>'+listaEquip+'</tbody></table></div></section>'+
+      '</div>'+
+      '<section class="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm overflow-hidden"><div class="p-4"><h2 class="font-bold">Empréstimos em andamento</h2><p class="text-[11px] text-gray-400 mt-1">Acompanhamento dos itens que ainda estão fora do almoxarifado</p></div><div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-500 uppercase"><tr><th class="p-3">Item</th><th class="p-3">Qtd.</th><th class="p-3">Responsável</th><th class="p-3">Destino</th><th class="p-3">Data</th></tr></thead><tbody>'+listaEmp+'</tbody></table></div></section>'+
+    '</div>');
+}
+
+function bindForms(){
+ var lf = document.getElementById('loginForm');
+ if(lf){
+   lf.onsubmit = function(ev){ ev.preventDefault(); login(this.getAttribute('data-tipo')); return false; };
+ }
+ var cf = document.getElementById('cadastroForm');
+ if(cf){
+   cf.onsubmit = function(ev){ ev.preventDefault(); criarCadastro(); return false; };
+ }
+}
+
+var _abrirLogin = abrirLogin;
+abrirLogin = function(tipo){
+ _abrirLogin(tipo);
+ var f = document.getElementById('loginForm');
+ if(f) f.setAttribute('data-tipo', tipo);
+ var fab = document.getElementById('support-fab');
+ if(fab) fab.classList.add('hidden');
+ bindForms();
+};
+
+var _cadastro = cadastro;
+cadastro = function(){
+ _cadastro();
+ bindForms();
+};
+
+/* =========================================================
+   CENTRAL DE AJUDA — V8
+   - Interface de suporte integrada ao site principal.
+   - Comunicação com a Edge Function /suporte.
+   - Não grava mensagens de suporte no localStorage.
+   ========================================================= */
+var SUPORTE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/suporte';
+var SUPORTE_IDENTIDADE_KEY = 'ls_suporte_identidade_v1';
+var suporteAtendimentoAtual = null;
+var suportePollTimer = null;
+var suporteUltimaContagem = 0;
+var suporteRealtimeAtivo = false;
+
+function suporteIdentidade(){
+  var sessao = lerSessaoSegura();
+  var u = usuarioAtual || sessao || {};
+  var salvo = {};
+  try{ salvo = JSON.parse(localStorage.getItem(SUPORTE_IDENTIDADE_KEY) || '{}') || {}; }catch(e){ salvo = {}; }
+  return {
+    escola: String((u.escola || salvo.escola || escolaAtual || escola || '')).trim(),
+    usuario: String((u.usuario || salvo.usuario || '')).trim(),
+    email: String((u.email || salvo.email || '')).trim(),
+    perfil: String((u.perfil || salvo.perfil || perfil || '')).trim(),
+    atendimentoId: Number(salvo.atendimentoId || 0) || null
+  };
+}
+
+function salvarIdentidadeSuporte(atendimento, identidade){
+  try{
+    var atual = identidade || suporteIdentidade();
+    localStorage.setItem(SUPORTE_IDENTIDADE_KEY, JSON.stringify({
+      escola: String(atual.escola || '').trim(),
+      usuario: String(atual.usuario || '').trim(),
+      email: String(atual.email || '').trim(),
+      perfil: String(atual.perfil || '').trim(),
+      atendimentoId: atendimento && atendimento.id ? Number(atendimento.id) : (atual.atendimentoId || null)
+    }));
+  }catch(e){ console.warn('Não foi possível guardar a identificação do suporte.', e); }
+}
+
+async function garantirSessaoRealtimeSuporte(){
+  if(!window.supabase) throw new Error('Supabase não carregado.');
+  if(!supabaseRealtime) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  var sessaoResp = await supabaseRealtime.auth.getSession();
+  var sessao = sessaoResp && sessaoResp.data ? sessaoResp.data.session : null;
+  if(!sessao){
+    var anon = await supabaseRealtime.auth.signInAnonymously();
+    if(anon.error) throw anon.error;
+    sessao = anon.data && anon.data.session;
+  }
+  if(!sessao) throw new Error('Não foi possível iniciar a sessão anônima do suporte.');
+  return sessao;
+}
+
+async function suporteRequest(body){
+  var sessao = await garantirSessaoRealtimeSuporte();
+  var resp = await fetch(SUPORTE_FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + sessao.access_token
+    },
+    body: JSON.stringify(body)
+  });
+  var texto = await resp.text();
+  var data = null;
+  try { data = texto ? JSON.parse(texto) : {}; } catch(e) { data = {erro:texto}; }
+  if(!resp.ok || data.sucesso === false){
+    throw new Error(data && (data.erro || data.message) ? (data.erro || data.message) : 'Não foi possível comunicar com o suporte.');
+  }
+  return data;
+}
+
+function abrirSuporte(){
+  var modal = document.getElementById('support-modal');
+  if(!modal) return;
+  modal.classList.remove('hidden');
+  renderSuporteInicio();
+  iniciarRealtimeSuporte();
+}
+
+function fecharSuporte(){
+  var modal = document.getElementById('support-modal');
+  if(modal) modal.classList.add('hidden');
+  suporteAtendimentoAtual = null;
+  if(suportePollTimer){ clearInterval(suportePollTimer); suportePollTimer = null; }
+  pararRealtimeSuporte();
+}
+
+function pararRealtimeSuporte(){
+  if(suporteRealtimeChannel && supabaseRealtime){
+    try{ supabaseRealtime.removeChannel(suporteRealtimeChannel); }catch(e){}
+  }
+  suporteRealtimeChannel = null;
+  suporteRealtimeAtivo = false;
+}
+
+async function iniciarRealtimeSuporte(){
+  if(!window.supabase) return;
+  try{
+    await garantirSessaoRealtimeSuporte();
+    var id = suporteIdentidade();
+    pararRealtimeSuporte();
+    suporteRealtimeChannel = supabaseRealtime
+      .channel('ls-suporte-anonimo')
+      .on('postgres_changes', {event:'INSERT', schema:'public', table:'mensagens_atendimento'}, function(payload){
+        var n = payload && payload.new ? payload.new : {};
+        if(!suporteAtendimentoAtual || Number(n.atendimento_id) !== Number(suporteAtendimentoAtual.id)) return;
+        if(n.remetente_tipo !== 'suporte') return;
+        abrirAtendimento(suporteAtendimentoAtual.id);
+        notify('Nova resposta do suporte', 'A conversa foi atualizada automaticamente.', 'success');
+      })
+      .on('postgres_changes', {event:'UPDATE', schema:'public', table:'atendimentos'}, function(payload){
+        var n = payload && payload.new ? payload.new : {};
+        var atual = suporteAtendimentoAtual && Number(suporteAtendimentoAtual.id) === Number(n.id);
+        var salvo = id.atendimentoId && Number(id.atendimentoId) === Number(n.id);
+        if(atual){
+          suporteAtendimentoAtual = Object.assign({}, suporteAtendimentoAtual, n);
+          abrirAtendimento(suporteAtendimentoAtual.id);
+        }else if(salvo && !document.getElementById('support-modal').classList.contains('hidden')){
+          listarMeusAtendimentos();
+        }
+      })
+      .subscribe(function(status){
+        suporteRealtimeAtivo = status === 'SUBSCRIBED';
+        if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.warn('Realtime do suporte indisponível; polling permanece como fallback.');
+      });
+  }catch(e){
+    suporteRealtimeAtivo = false;
+    console.warn('Não foi possível iniciar Realtime do suporte:', e);
+  }
+}
+
+function suporteCategoria(categoria){
+  renderSuporteFormulario(categoria);
+}
+
+function renderSuporteInicio(){
+  var body = document.getElementById('support-body');
+  var sub = document.getElementById('support-subtitle');
+  if(!body) return;
+  var id = suporteIdentidade();
+  if(sub) sub.textContent = id.usuario ? 'Olá, ' + id.usuario + '. Como podemos ajudar?' : 'Solicite ajuda ou recupere seu acesso.';
+
+  var categorias = [
+    ['key','Recuperar acesso','Esqueci minha senha ou não consigo entrar.','recuperacao'],
+    ['circle-question','Tirar uma dúvida','Preciso de orientação sobre o sistema.','duvida'],
+    ['bug','Relatar um problema','Alguma função não está funcionando.','problema'],
+    ['boxes-stacked','Problema com estoque','Dificuldade com materiais ou estoque.','estoque'],
+    ['laptop','Problema com equipamento','Problema com equipamentos ou disponibilidade.','equipamento'],
+    ['clipboard-list','Problema com empréstimo','Dificuldade para retirar ou devolver um item.','emprestimo']
+  ];
+
+  var lista = categorias.map(function(c){
+    return '<button type="button" onclick="suporteCategoria(\''+c[3]+'\')" class="w-full text-left p-3 rounded-2xl border dark:border-gray-700 hover:border-brandLightBlue hover:bg-blue-50/70 dark:hover:bg-gray-700 transition flex items-center gap-3">' +
+      '<span class="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-700 text-brandDarkBlue dark:text-blue-300 flex items-center justify-center shrink-0"><i class="fas fa-'+c[0]+'"></i></span>' +
+      '<span class="min-w-0"><strong class="block text-xs font-bold">'+esc(c[1])+'</strong><span class="block text-[10px] text-gray-400 mt-0.5">'+esc(c[2])+'</span></span>' +
+      '<i class="fas fa-chevron-right ml-auto text-[10px] text-gray-300"></i></button>';
+  }).join('');
+
+  body.innerHTML = '<div class="space-y-2">'+lista+'</div>' +
+    '<div class="mt-4 pt-4 border-t dark:border-gray-700">' +
+      '<button type="button" onclick="listarMeusAtendimentos()" class="w-full py-3 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold"><i class="fas fa-inbox mr-2"></i>Meus atendimentos</button>' +
+    '</div>';
+}
+
+function renderSuporteFormulario(categoria){
+  var body = document.getElementById('support-body');
+  if(!body) return;
+  var id = suporteIdentidade();
+  var nomes = {
+    recuperacao:'Recuperação de acesso', duvida:'Tirar uma dúvida', problema:'Relatar um problema',
+    estoque:'Problema com estoque', equipamento:'Problema com equipamento', emprestimo:'Problema com empréstimo'
+  };
+  var logado = !!id.usuario;
+  var temIdentidadeSuporte = !!(id.escola && id.usuario);
+  var precisaIdentificacao = !temIdentidadeSuporte || categoria === 'recuperacao';
+
+  body.innerHTML =
+    '<button type="button" onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 hover:text-brandDarkBlue mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button>' +
+    '<div class="mb-4"><span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-brandDarkBlue dark:text-blue-300 text-[10px] font-extrabold"><i class="fas fa-life-ring"></i>'+esc(nomes[categoria] || 'Atendimento')+'</span></div>' +
+    (precisaIdentificacao ? '<div class="space-y-3 mb-4">' +
+      '<div><label class="label">Escola</label><input id="sup-escola" class="input" value="'+esc(id.escola)+'" placeholder="Nome da escola"></div>' +
+      '<div><label class="label">Usuário</label><input id="sup-usuario" class="input" value="'+esc(id.usuario)+'" placeholder="Seu usuário"></div>' +
+      '<div><label class="label">E-mail</label><input id="sup-email" type="email" class="input" value="'+esc(id.email)+'" placeholder="seu@email.com"></div>' +
+      '<div><label class="label">Perfil</label><select id="sup-perfil" class="input"><option value="Professor" '+(id.perfil==='Professor'?'selected':'')+'>Professor</option><option value="Coordenador" '+(id.perfil==='Coordenador'?'selected':'')+'>Coordenador</option></select></div>' +
+    '</div>' : '<div class="mb-4 p-3 rounded-2xl bg-gray-50 dark:bg-gray-700/60 text-[11px] text-gray-500 dark:text-gray-300"><i class="fas fa-user-check text-brandGreen mr-2"></i>Atendimento vinculado a <strong>'+esc(id.usuario)+'</strong> · '+esc(id.escola)+'</div>') +
+    '<div><label class="label">Assunto</label><input id="sup-assunto" class="input" placeholder="Ex.: Não consigo acessar os empréstimos"></div>' +
+    '<div class="mt-3"><label class="label">Mensagem</label><textarea id="sup-mensagem" rows="5" maxlength="5000" class="input resize-none" placeholder="Explique o que aconteceu..."></textarea><div class="text-[9px] text-gray-400 text-right mt-1">Máximo de 5000 caracteres</div></div>' +
+    '<button type="button" onclick="enviarNovoAtendimento(\''+categoria+'\')" class="w-full mt-4 py-3.5 rounded-xl bg-brandDarkBlue text-white text-xs font-extrabold hover:opacity-95"><i class="fas fa-paper-plane mr-2"></i>Enviar atendimento</button>';
+}
+
+async function enviarNovoAtendimento(categoria){
+  var id = suporteIdentidade();
+  var escolaEl = document.getElementById('sup-escola');
+  var usuarioEl = document.getElementById('sup-usuario');
+  var emailEl = document.getElementById('sup-email');
+  var perfilEl = document.getElementById('sup-perfil');
+  var assuntoEl = document.getElementById('sup-assunto');
+  var mensagemEl = document.getElementById('sup-mensagem');
+  var escolaV = String((escolaEl && escolaEl.value) || id.escola || '').trim();
+  var usuarioV = String((usuarioEl && usuarioEl.value) || id.usuario || '').trim();
+  var emailV = String((emailEl && emailEl.value) || id.email || '').trim();
+  var perfilV = String((perfilEl && perfilEl.value) || id.perfil || 'Professor').trim();
+  var assuntoV = String((assuntoEl && assuntoEl.value) || '').trim();
+  var mensagemV = String((mensagemEl && mensagemEl.value) || '').trim();
+
+  if(!escolaV || !usuarioV || !perfilV || !assuntoV || !mensagemV){
+    msg('Preencha os dados do atendimento.', 'error');
+    return;
+  }
+  if(categoria === 'recuperacao' && !emailV){
+    msg('Informe um e-mail para facilitar a recuperação do acesso.', 'error');
+    return;
+  }
+
+  try{
+    var btns = document.querySelectorAll('#support-body button');
+    btns.forEach(function(b){ b.disabled = true; });
+    var data = await suporteRequest({
+      acao:'criar_atendimento', escola:escolaV, usuario:usuarioV, email:emailV,
+      perfil:perfilV, categoria:categoria, assunto:assuntoV, mensagem:mensagemV
+    });
+    if(!data.atendimento) throw new Error('Atendimento não retornado.');
+    suporteAtendimentoAtual = data.atendimento;
+    salvarIdentidadeSuporte(data.atendimento, {escola:escolaV, usuario:usuarioV, email:emailV, perfil:perfilV});
+    await iniciarRealtimeSuporte();
+    renderSuporteConversa(data.atendimento, [{
+      remetente:usuarioV, remetente_tipo:'usuario', mensagem:mensagemV, created_at:new Date().toISOString()
+    }]);
+    notify('Atendimento #'+data.atendimento.id+' enviado com sucesso.', 'success');
+  }catch(e){
+    console.error('Erro ao criar atendimento:', e);
+    msg(e.message || 'Não foi possível enviar o atendimento.', 'error');
+    var btns2 = document.querySelectorAll('#support-body button');
+    btns2.forEach(function(b){ b.disabled = false; });
+  }
+}
+
+async function listarMeusAtendimentos(){
+  var id = suporteIdentidade();
+  var body = document.getElementById('support-body');
+  if(!body) return;
+  if(!id.escola || !id.usuario){
+    body.innerHTML = '<div class="text-center py-8"><div class="text-gray-400 text-sm mb-2"><i class="fas fa-user-lock text-2xl"></i></div><p class="text-xs text-gray-500">Informe sua escola e usuário no primeiro atendimento para criar sua identificação de suporte.</p><button onclick="renderSuporteInicio()" class="mt-4 text-xs font-bold text-brandDarkBlue">Voltar</button></div>';
+    return;
+  }
+  body.innerHTML = '<div class="text-center py-8 text-xs text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Carregando atendimentos...</div>';
+  try{
+    var data = await suporteRequest({acao:'listar_atendimentos', escola:id.escola, usuario:id.usuario});
+    var lista = data.atendimentos || [];
+    if(lista.length) salvarIdentidadeSuporte(lista[0], id);
+    if(!lista.length){
+      body.innerHTML = '<button onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button><div class="text-center py-8"><i class="fas fa-inbox text-3xl text-gray-300"></i><p class="text-xs text-gray-400 mt-2">Você ainda não possui atendimentos.</p></div>';
+      return;
+    }
+    var statusClass = function(st){ return st==='resolvido' ? 'bg-green-50 text-green-700' : st==='encerrado' ? 'bg-gray-100 text-gray-600' : st==='em_atendimento' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'; };
+    body.innerHTML = '<button onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button>' +
+      '<div class="space-y-2">' + lista.map(function(a){
+        return '<button onclick="abrirAtendimento('+Number(a.id)+')" class="w-full text-left p-3 rounded-2xl border dark:border-gray-700 hover:border-brandLightBlue transition"><div class="flex items-start gap-2"><span class="flex-1 min-w-0"><strong class="block text-xs truncate">#'+Number(a.id)+' · '+esc(a.assunto)+'</strong><span class="block text-[10px] text-gray-400 mt-1">'+esc(a.categoria)+' · '+esc(a.created_at ? new Date(a.created_at).toLocaleString('pt-BR') : '')+'</span></span><span class="shrink-0 px-2 py-1 rounded-full text-[9px] font-extrabold '+statusClass(a.status)+'">'+esc(a.status.replace('_',' '))+'</span></div></button>';
+      }).join('') + '</div>';
+  }catch(e){
+    console.error('Erro ao listar atendimentos:', e);
+    body.innerHTML = '<button onclick="renderSuporteInicio()" class="text-[11px] font-bold text-gray-400 mb-4"><i class="fas fa-arrow-left mr-1"></i>Voltar</button><div class="text-center py-8 text-xs text-red-500">Não foi possível carregar seus atendimentos.</div>';
+  }
+}
+
+async function abrirAtendimento(id){
+  var ident = suporteIdentidade();
+  iniciarRealtimeSuporte();
+  var body = document.getElementById('support-body');
+  if(!body) return;
+  body.innerHTML = '<div class="text-center py-8 text-xs text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Carregando conversa...</div>';
+  try{
+    var lista = await suporteRequest({acao:'listar_atendimentos', escola:ident.escola, usuario:ident.usuario});
+    var atendimento = (lista.atendimentos || []).find(function(a){ return Number(a.id)===Number(id); });
+    if(!atendimento) throw new Error('Atendimento não encontrado.');
+    var data = await suporteRequest({acao:'listar_mensagens', atendimento_id:Number(id), escola:ident.escola, usuario:ident.usuario});
+    suporteAtendimentoAtual = atendimento;
+    salvarIdentidadeSuporte(atendimento, ident);
+    renderSuporteConversa(atendimento, data.mensagens || []);
+  }catch(e){
+    console.error('Erro ao abrir atendimento:', e);
+    msg(e.message || 'Não foi possível abrir o atendimento.', 'error');
+    listarMeusAtendimentos();
+  }
+}
+
+function renderSuporteConversa(atendimento, mensagens){
+  var body = document.getElementById('support-body');
+  if(!body) return;
+  var ident = suporteIdentidade();
+  var fechado = atendimento.status === 'encerrado';
+  var statusLabel = atendimento.status ? atendimento.status.replace('_',' ') : 'aberto';
+  var statusCor = atendimento.status==='resolvido' ? 'text-green-600 bg-green-50' : atendimento.status==='encerrado' ? 'text-gray-600 bg-gray-100' : atendimento.status==='em_atendimento' ? 'text-amber-700 bg-amber-50' : 'text-red-600 bg-red-50';
+  var msgsHtml = (mensagens || []).map(function(m){
+    var souEu = m.remetente_tipo === 'usuario';
+    return '<div class="flex '+(souEu?'justify-end':'justify-start')+' mb-2"><div class="max-w-[86%] px-3 py-2.5 rounded-2xl '+(souEu?'bg-brandDarkBlue text-white rounded-br-md':'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-bl-md')+'"><div class="text-[9px] opacity-70 mb-1">'+esc(souEu?'Você':'Suporte')+'</div><div class="text-xs whitespace-pre-wrap break-words">'+esc(m.mensagem)+'</div><div class="text-[8px] opacity-60 mt-1 text-right">'+esc(m.created_at ? new Date(m.created_at).toLocaleString('pt-BR') : '')+'</div></div></div>';
+  }).join('');
+
+  body.innerHTML =
+    '<button type="button" onclick="listarMeusAtendimentos()" class="text-[11px] font-bold text-gray-400 mb-3"><i class="fas fa-arrow-left mr-1"></i>Meus atendimentos</button>' +
+    '<div class="mb-3"><div class="flex items-center gap-2"><h3 class="font-extrabold text-sm flex-1">#'+Number(atendimento.id)+' · '+esc(atendimento.assunto)+'</h3><span class="px-2 py-1 rounded-full text-[9px] font-extrabold '+statusCor+'">'+esc(statusLabel)+'</span></div><p class="text-[10px] text-gray-400 mt-1">'+esc(atendimento.categoria)+' · '+esc(atendimento.escola)+'</p></div>' +
+    '<div id="support-messages" class="h-72 overflow-y-auto rounded-2xl border dark:border-gray-700 p-3 bg-gray-50/70 dark:bg-gray-900/30">'+(msgsHtml || '<div class="text-center text-xs text-gray-400 py-10">Nenhuma mensagem ainda.</div>')+'</div>' +
+    (fechado ? '<div class="mt-3 p-3 rounded-xl bg-gray-100 dark:bg-gray-700 text-center text-[10px] text-gray-500">Este atendimento foi encerrado.</div>' :
+      '<div class="mt-3 flex gap-2"><textarea id="support-reply" rows="2" maxlength="5000" class="input flex-1 resize-none" placeholder="Digite uma mensagem..."></textarea><button type="button" onclick="enviarMensagemAtendimento()" class="w-12 shrink-0 rounded-xl bg-brandDarkBlue text-white hover:opacity-90"><i class="fas fa-paper-plane"></i></button></div>') +
+    '<button type="button" onclick="atualizarConversaAtual()" class="w-full mt-2 py-2 text-[10px] font-bold text-gray-400 hover:text-brandDarkBlue"><i class="fas fa-rotate mr-1"></i>Atualizar conversa</button>';
+  var box = document.getElementById('support-messages');
+  if(box) box.scrollTop = box.scrollHeight;
+}
+
+async function atualizarConversaAtual(){
+  if(!suporteAtendimentoAtual) return;
+  await abrirAtendimento(suporteAtendimentoAtual.id);
+}
+
+async function enviarMensagemAtendimento(){
+  if(!suporteAtendimentoAtual) return;
+  var el = document.getElementById('support-reply');
+  var mensagem = String((el && el.value) || '').trim();
+  if(!mensagem){ msg('Digite uma mensagem.', 'warning'); return; }
+  var id = suporteIdentidade();
+  try{
+    await suporteRequest({acao:'enviar_mensagem', atendimento_id:Number(suporteAtendimentoAtual.id), escola:id.escola, usuario:id.usuario, mensagem:mensagem});
+    await abrirAtendimento(suporteAtendimentoAtual.id);
+  }catch(e){
+    console.error('Erro ao enviar mensagem:', e);
+    msg(e.message || 'Não foi possível enviar a mensagem.', 'error');
+  }
+}
+
+function iniciarMonitorSuporte(){
+  iniciarRealtimeSuporte();
+  if(suportePollTimer) clearInterval(suportePollTimer);
+  suportePollTimer = setInterval(async function(){
+    var id = suporteIdentidade();
+    if(!id.escola || !id.usuario) return;
+    try{
+      var data = await suporteRequest({acao:'listar_atendimentos', escola:id.escola, usuario:id.usuario});
+      var total = (data.atendimentos || []).filter(function(a){ return a.status === 'em_atendimento'; }).length;
+      var badge = document.getElementById('support-badge');
+      if(badge){
+        if(total > 0){ badge.textContent=String(total); badge.classList.remove('hidden'); badge.classList.add('flex'); }
+        else { badge.classList.add('hidden'); badge.classList.remove('flex'); }
+      }
+    }catch(e){ /* suporte indisponível não deve quebrar o sistema principal */ }
+  }, 30000);
+}
+
+iniciarMonitorSuporte();
+
+// O suporte possui uma sessão anônima própria para permitir Realtime mesmo antes do login normal.
+try{ if(window.supabase) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
+garantirSessaoRealtimeSuporte().then(function(){ iniciarRealtimeSuporte(); }).catch(function(e){ console.warn('Sessão anônima do suporte não iniciada:', e); });
+inicializarApp().catch(function(err){
+  console.error('Erro ao iniciar o Logística Simples:', err);
+  try { telaInicial(); } catch (erroTela) {
+    console.error('Não foi possível renderizar a tela inicial:', erroTela);
+    var areaApp = document.getElementById('app');
+    if (areaApp) areaApp.innerHTML = '<div class="p-6 text-center"><h1 class="text-xl font-bold">Logística Simples</h1><p class="mt-3 text-sm">O sistema encontrou um erro ao abrir. Atualize a página e tente novamente.</p></div>';
+  }
+});
+
+</script>
+</body>
+</html>
