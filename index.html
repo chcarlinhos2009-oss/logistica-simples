@@ -2575,19 +2575,38 @@ function iniciarMonitorSuporte(){
   }, 30000);
 }
 
-iniciarMonitorSuporte();
+// Primeiro, renderiza a interface principal. Falhas no serviço de suporte
+// não podem impedir que o estoque/login apareça.
+try {
+  telaInicial();
+} catch (erroInicial) {
+  console.error('Erro ao mostrar a tela inicial:', erroInicial);
+  var areaInicial = document.getElementById('app');
+  if (areaInicial) {
+    areaInicial.innerHTML = '<div style="padding:24px;font-family:Arial,sans-serif;color:#1f2937"><h1>Logística Simples</h1><p>O sistema encontrou um erro ao abrir. Atualize a página e tente novamente.</p></div>';
+  }
+}
 
-// O suporte possui uma sessão anônima própria para permitir Realtime mesmo antes do login normal.
-try{ if(window.supabase) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
-garantirSessaoRealtimeSuporte().then(function(){ iniciarRealtimeSuporte(); }).catch(function(e){ console.warn('Sessão anônima do suporte não iniciada:', e); });
-inicializarApp().catch(function(err){
+// Inicialização do sistema principal separada da inicialização do suporte.
+Promise.resolve().then(function(){ return inicializarApp(); }).catch(function(err){
   console.error('Erro ao iniciar o Logística Simples:', err);
   try { telaInicial(); } catch (erroTela) {
     console.error('Não foi possível renderizar a tela inicial:', erroTela);
     var areaApp = document.getElementById('app');
-    if (areaApp) areaApp.innerHTML = '<div class="p-6 text-center"><h1 class="text-xl font-bold">Logística Simples</h1><p class="mt-3 text-sm">O sistema encontrou um erro ao abrir. Atualize a página e tente novamente.</p></div>';
+    if (areaApp) areaApp.innerHTML = '<div style="padding:24px;font-family:Arial,sans-serif;color:#1f2937"><h1>Logística Simples</h1><p>O sistema encontrou um erro ao abrir. Atualize a página e tente novamente.</p></div>';
   }
 });
+
+// Suporte é opcional: se o backend dele falhar, o app principal continua funcionando.
+try { iniciarMonitorSuporte(); } catch (e) { console.warn('Monitor de suporte não iniciado:', e); }
+try {
+  if (window.supabase) supabaseRealtime = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  Promise.resolve().then(function(){ return garantirSessaoRealtimeSuporte(); })
+    .then(function(){ return iniciarRealtimeSuporte(); })
+    .catch(function(e){ console.warn('Sessão anônima do suporte não iniciada:', e); });
+} catch (e) {
+  console.warn('Suporte não iniciado:', e);
+}
 
 </script>
 </body>
