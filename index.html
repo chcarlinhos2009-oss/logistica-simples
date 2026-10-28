@@ -343,11 +343,12 @@ function normalizarUsuarios(lista){
 }
 
 function normalizarDb(obj){
-  var base = dadosIniciais();
   var x = obj && typeof obj === 'object' ? obj : {};
+  // Dados ausentes nunca devem criar produtos/equipamentos de demonstração.
+  // Cada escola começa vazia; dados já salvos continuam sendo preservados.
   db = {
-    materiais: Array.isArray(x.materiais) ? x.materiais : base.materiais,
-    equip: Array.isArray(x.equip) ? x.equip : base.equip,
+    materiais: Array.isArray(x.materiais) ? x.materiais : [],
+    equip: Array.isArray(x.equip) ? x.equip : [],
     emp: Array.isArray(x.emp) ? x.emp : [],
     hist: Array.isArray(x.hist) ? x.hist : []
   };
@@ -410,11 +411,9 @@ async function carregarDadosOnline(escolaNome, criarSeNaoExistir){
       return true;
     }
 
-    // Primeira utilização desta escola: aproveita somente o cache próprio dela.
-    // Se ainda não houver dados, começa com o estoque vazio para não inserir
-    // materiais/equipamentos de exemplo nem reaproveitar dados de outra escola.
-    var cache = lerJSONSeguro(localStorage.getItem(K), null);
-    normalizarDb(cache || {materiais:[], equip:[], emp:[], hist:[]});
+    // Escola sem registro no Supabase é uma escola nova: sempre começa vazia.
+    // Não reutiliza cache local nem dados de demonstração nessa situação.
+    normalizarDb({materiais:[], equip:[], emp:[], hist:[]});
     usuarios = normalizarUsuarios(lerJSONSeguro(localStorage.getItem(AUTH_KEY), []));
 
     if(criarSeNaoExistir !== false){
