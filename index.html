@@ -1717,9 +1717,7 @@ function emprestimos(){
       '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
       '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) +
         (l.observacao ? '<div class="text-[11px] text-gray-400 mt-1">' + esc(l.observacao) + '</div>' : '') + '</td>' +
-      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) +
-        '<div class="mt-1">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
-        '<div>Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div></td>' +
+      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) + '</td>' +
       '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 hover:bg-green-100 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
     '</tr>';
   }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum item emprestado no momento.</td></tr>';
@@ -1739,8 +1737,6 @@ function emprestimos(){
       '</div>' +
       '<div class="text-brandGreen font-semibold">Por: ' + esc(l.pessoa) + '</div>' +
       '<div class="text-gray-500">Destino: ' + esc(l.destino) + '</div>' +
-      '<div class="text-[10px] text-gray-400">Retirada prevista: ' + esc(l.dataPrevistaRetirada || '-') + '</div>' +
-      '<div class="text-[10px] text-gray-400">Devolução prevista: ' + esc(l.dataPrevistaDevolucao || '-') + '</div>' +
       (l.observacao ? '<div class="text-gray-500 mt-1">Observação: ' + esc(l.observacao) + '</div>' : '') +
       '<div class="text-[10px] text-gray-400">Registrado em: ' + esc(l.data) + '</div>' +
       '<button onclick="devolver(' + l.id + ')" class="w-full bg-brandGreen hover:opacity-90 text-white font-bold py-2 rounded-xl text-center mt-2">Devolver</button>' +
@@ -1775,14 +1771,6 @@ function emprestimos(){
           '<label class="label">Sala / setor / destino</label>' +
           '<input id="ld" class="input" placeholder="Ex.: Sala 5">' +
         '</div>' +
-        '<div>' +
-          '<label class="label">Data prevista para retirada</label>' +
-          '<input id="ldataRetirada" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
-        '</div>' +
-        '<div>' +
-          '<label class="label">Data prevista para devolução</label>' +
-          '<input id="ldataDevolucao" type="date" class="input" required min="' + new Date().toISOString().slice(0,10) + '">' +
-        '</div>' +
         '<div class="sm:col-span-2">' +
           '<label class="label">Observação (opcional)</label>' +
           '<textarea id="lobs" class="input" rows="2" placeholder="Finalidade ou informações adicionais"></textarea>' +
@@ -1814,22 +1802,16 @@ function emprestimos(){
 
 async function addEmp(){
   var le = document.getElementById('le'), lq = document.getElementById('lq'), lp = document.getElementById('lp'), ld = document.getElementById('ld');
-  var retiradaEl = document.getElementById('ldataRetirada');
-  var devolucaoEl = document.getElementById('ldataDevolucao');
   var obsEl = document.getElementById('lobs');
   var valor = le ? le.value : '';
   var q = Number(lq ? lq.value : 0);
   var pessoa = lp ? lp.value.trim() : '';
   var destino = ld ? ld.value.trim() : '';
-  var dataPrevistaRetirada = retiradaEl ? retiradaEl.value : '';
-  var dataPrevistaDevolucao = devolucaoEl ? devolucaoEl.value : '';
   var observacao = obsEl ? obsEl.value.trim() : '';
 
   if(!valor) return msg('Selecione um material ou equipamento.', 'error');
   if(!q || q <= 0) return msg('Informe uma quantidade válida.', 'error');
   if(!pessoa || !destino) return msg('Preencha quem retirou e a sala/setor.', 'error');
-  if(!dataPrevistaRetirada || !dataPrevistaDevolucao) return msg('Informe as datas previstas de retirada e devolução.', 'error');
-  if(dataPrevistaDevolucao < dataPrevistaRetirada) return msg('A data prevista de devolução não pode ser anterior à retirada.', 'error');
 
   var partes = valor.split(':');
   var tipo = partes[0];
@@ -1847,9 +1829,10 @@ async function addEmp(){
     if(q > Number(e.disp || 0))
       return msg('Quantidade indisponível! Disponíveis: ' + Number(e.disp || 0), 'error');
     try{
+      var hoje = dataLocalISO(new Date());
       var agendados = await sbRequest('ls_agenda_emprestimos','GET',
-        'select=id,data,professor&escola=eq.'+encodeURIComponent(escola)+'&equipamento_id=eq.'+encodeURIComponent(e.id)+'&data=gte.'+dataPrevistaRetirada+'&data=lte.'+dataPrevistaDevolucao+'&limit=1');
-      if(agendados && agendados.length) return msg('Este equipamento possui reserva na data informada, para '+(agendados[0].professor||'outro professor')+'. Consulte a Agenda de Empréstimos.','error');
+        'select=id,data,professor&escola=eq.'+encodeURIComponent(escola)+'&equipamento_id=eq.'+encodeURIComponent(e.id)+'&data=gte.'+hoje+'&order=data.asc&limit=1');
+      if(agendados && agendados.length) return msg('Este equipamento já possui reserva futura para '+(agendados[0].professor||'outro professor')+' em '+dataLegivel(agendados[0].data)+'. Consulte a Agenda de Empréstimos.','error');
     }catch(err){
       console.error(err);
       return msg('Não foi possível verificar a agenda online. A retirada de equipamentos foi bloqueada por segurança.','error');
@@ -1875,8 +1858,6 @@ async function addEmp(){
     pessoa: pessoa,
     destino: destino,
     data: data,
-    dataPrevistaRetirada: dataPrevistaRetirada,
-    dataPrevistaDevolucao: dataPrevistaDevolucao,
     observacao: observacao,
     ativo: true,
     tipo: e ? 'Equipamento' : 'Material',
