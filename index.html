@@ -1592,20 +1592,25 @@ async function agendaEmprestimos(){
     reservas = Array.isArray(rows) ? rows : [];
   }catch(err){
     console.error('Erro ao carregar agenda:',err);
-    shell(head('Agenda de Empréstimos','Reservas de equipamentos de segunda a sexta')+
-      '<div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-5 text-sm"><b>Configuração necessária no Supabase.</b><p class="mt-2">Para ativar a agenda compartilhada e impedir reservas duplicadas, crie a tabela <code>ls_agenda_emprestimos</code> usando o SQL fornecido junto com este arquivo.</p></div>');
+    shell(head('Agenda de Empréstimos','Organize as reservas de notebooks e equipamentos')+
+      '<div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-5 text-sm"><b>Não foi possível carregar a agenda.</b><p class="mt-2">Confira a conexão com o Supabase e se a tabela <code>ls_agenda_emprestimos</code> foi criada.</p></div>');
     return;
   }
   var esCoord = perfil === 'Coordenador';
-  var dias = ['Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira'];
+  var dias = ['Segunda','Terça','Quarta','Quinta','Sexta'];
+  var hoje = dataLocalISO(new Date());
+  var totalEquip = (db.equip||[]).length;
+  var totalReservas = reservas.length;
   var htmlDias = datas.map(function(data,idx){
-    var cards = db.equip.map(function(eq){
-      var reserva = reservas.find(function(r){ return String(r.data)===data && Number(r.equipamento_id)===Number(eq.id); });
+    var doDia = reservas.filter(function(r){return String(r.data)===data;});
+    var ehHoje = data===hoje;
+    var cards = (db.equip||[]).map(function(eq){
+      var reserva = doDia.find(function(r){ return Number(r.equipamento_id)===Number(eq.id); });
       if(reserva){
-        return '<div class="border rounded-xl p-3 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/40">'+
-          '<div class="flex items-start justify-between gap-2"><div class="min-w-0"><div class="font-bold text-xs">'+esc(eq.nome)+'</div><div class="text-[11px] text-amber-800 dark:text-amber-300 mt-1"><i class="fas fa-calendar-check mr-1"></i>Reservado para <b>'+esc(reserva.professor)+'</b></div></div><span class="text-[9px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-800">Agendado</span></div>'+
-          (esCoord ? '<div class="flex gap-2 mt-3"><button onclick="agendaEditar(\''+String(reserva.id)+'\')" class="text-[10px] font-bold text-blue-700">Alterar</button><button onclick="agendaCancelar(\''+String(reserva.id)+'\')" class="text-[10px] font-bold text-red-600">Cancelar</button></div>' : '')+
-        '</div>';
+        return '<article class="rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 p-3 shadow-sm">'+
+          '<div class="flex items-start gap-2"><div class="h-9 w-9 shrink-0 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 flex items-center justify-center"><i class="fas fa-laptop"></i></div><div class="min-w-0 flex-1"><div class="font-bold text-xs text-gray-800 dark:text-gray-100 break-words">'+esc(eq.nome)+'</div><div class="text-[10px] text-blue-700 dark:text-blue-300 mt-1 font-semibold"><i class="fas fa-user mr-1"></i>'+esc(reserva.professor)+'</div></div></div>'+
+          '<div class="mt-3 flex items-center justify-between gap-2"><span class="inline-flex items-center gap-1 text-[9px] font-bold rounded-full px-2 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200"><i class="fas fa-calendar-check"></i> Reservado</span>'+
+          (esCoord ? '<div class="flex gap-2"><button onclick="agendaEditar(\''+String(reserva.id)+'\')" class="text-[10px] font-bold text-blue-700 dark:text-blue-300">Alterar</button><button onclick="agendaCancelar(\''+String(reserva.id)+'\')" class="text-[10px] font-bold text-red-600">Cancelar</button></div>' : '')+'</div></article>';
       }
       var emprestimo = (db.emp||[]).find(function(l){
         if(!l.ativo || Number(l.equipId)!==Number(eq.id)) return false;
@@ -1613,15 +1618,28 @@ async function agendaEmprestimos(){
         return a && b && data>=a && data<=b;
       });
       if(emprestimo){
-        return '<div class="border rounded-xl p-3 bg-gray-50 dark:bg-gray-700/40 dark:border-gray-600"><div class="font-bold text-xs">'+esc(eq.nome)+'</div><div class="text-[11px] text-gray-500 mt-1">Em empréstimo com '+esc(emprestimo.pessoa||'outro usuário')+'</div><span class="text-[9px] font-bold text-gray-500">Indisponível</span></div>';
+        return '<article class="rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-700/40 dark:border-gray-600 p-3"><div class="flex items-center gap-2"><div class="h-9 w-9 rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-500 flex items-center justify-center"><i class="fas fa-laptop"></i></div><div class="min-w-0"><div class="font-bold text-xs">'+esc(eq.nome)+'</div><div class="text-[10px] text-gray-500 mt-1">Com '+esc(emprestimo.pessoa||'outro usuário')+'</div></div></div><span class="inline-block mt-3 text-[9px] font-bold rounded-full px-2 py-1 bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-200">Em empréstimo</span></article>';
       }
-      return '<div class="border rounded-xl p-3 dark:border-gray-700"><div class="font-bold text-xs">'+esc(eq.nome)+'</div><div class="text-[11px] text-green-700 dark:text-green-400 mt-1"><i class="fas fa-check-circle mr-1"></i>Livre nesta data</div><button onclick="agendaReservar('+Number(eq.id)+',\''+data+'\')" class="mt-2 w-full rounded-lg bg-brandGreen text-white text-[10px] font-bold py-2">Reservar equipamento</button></div>';
-    }).join('') || '<div class="text-xs text-gray-400 p-3">Nenhum equipamento cadastrado.</div>';
-    return '<section class="bg-white dark:bg-gray-800 border rounded-2xl shadow-sm p-4 min-w-0"><div class="flex justify-between items-center gap-2 mb-3"><div><h3 class="font-bold text-sm">'+dias[idx]+'</h3><p class="text-[11px] text-gray-400">'+dataLegivel(data)+'</p></div><span class="text-[10px] text-gray-400">'+reservas.filter(function(r){return String(r.data)===data;}).length+' reserva(s)</span></div><div class="space-y-2">'+cards+'</div></section>';
+      return '<article class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3"><div class="flex items-center gap-2"><div class="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 flex items-center justify-center"><i class="fas fa-laptop"></i></div><div class="min-w-0"><div class="font-bold text-xs text-gray-800 dark:text-gray-100">'+esc(eq.nome)+'</div><div class="text-[10px] text-green-700 dark:text-green-400 mt-1">Disponível</div></div></div><button onclick="agendaReservar('+Number(eq.id)+',\''+data+'\')" class="mt-3 w-full rounded-lg bg-brandGreen hover:opacity-90 text-white text-[10px] font-bold py-2.5"><i class="fas fa-plus mr-1"></i> Reservar</button></article>';
+    }).join('') || '<div class="text-xs text-gray-400 text-center py-8">Nenhum equipamento cadastrado.</div>';
+    return '<section class="min-w-0 rounded-2xl border '+(ehHoje?'border-blue-300 ring-2 ring-blue-100 dark:border-blue-700 dark:ring-blue-900/40':'border-gray-200 dark:border-gray-700')+' bg-gray-50 dark:bg-gray-900/40 overflow-hidden">'+
+      '<header class="px-3 py-3 '+(ehHoje?'bg-blue-600 text-white':'bg-white dark:bg-gray-800')+' border-b border-gray-200 dark:border-gray-700"><div class="flex items-center justify-between gap-2"><div><div class="text-xs font-extrabold uppercase tracking-wide">'+dias[idx]+'</div><div class="text-xl font-black leading-tight">'+data.split('-')[2]+'</div><div class="text-[10px] '+(ehHoje?'text-blue-100':'text-gray-500 dark:text-gray-400')+'">'+data.split('-')[1]+'/'+data.split('-')[0]+'</div></div>'+
+      (ehHoje?'<span class="text-[9px] font-bold bg-white/20 rounded-full px-2 py-1">HOJE</span>':'<span class="text-[9px] font-semibold text-gray-400">'+doDia.length+' reserva(s)</span>')+'</div></header>'+
+      '<div class="p-2.5 space-y-2">'+cards+'</div></section>';
   }).join('');
-  shell(head('Agenda de Empréstimos','Reservas de equipamentos de segunda a sexta')+
-    '<div class="bg-white dark:bg-gray-800 border rounded-2xl p-4 mb-4"><div class="flex flex-col sm:flex-row sm:items-end gap-3"><div class="flex-1"><label class="label">Escolher semana (selecione uma data)</label><input id="agenda-data" type="date" class="input" value="'+inicio+'" onchange="agendaMudarSemana(this.value)"></div><button onclick="agendaSemanaAnterior()" class="border rounded-xl px-4 py-3 text-xs font-bold">← Semana anterior</button><button onclick="agendaProximaSemana()" class="border rounded-xl px-4 py-3 text-xs font-bold">Próxima semana →</button></div><p class="text-[11px] text-gray-400 mt-3">As reservas são compartilhadas com todos os usuários da escola. Um equipamento só pode ter uma reserva por dia.</p></div>'+
-    '<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">'+htmlDias+'</div>'
+  var dataFim=datas[4];
+  var periodo=dataLegivel(datas[0])+' – '+dataLegivel(dataFim);
+  shell(head('Agenda de Empréstimos','Visualize e organize as reservas da semana')+
+    '<section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 mb-4 shadow-sm">'+
+      '<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">'+
+        '<div><div class="text-[10px] uppercase tracking-widest font-bold text-blue-600 dark:text-blue-400">Planejamento semanal</div><div class="text-lg font-extrabold mt-1">'+periodo+'</div><div class="text-xs text-gray-500 mt-1">Segunda a sexta-feira</div></div>'+
+        '<div class="flex flex-wrap items-center gap-2"><button onclick="agendaSemanaAnterior()" class="border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2.5 text-xs font-bold hover:bg-gray-50 dark:hover:bg-gray-700"><i class="fas fa-chevron-left mr-1"></i> Anterior</button><button onclick="window.agendaSemana=segundaDaSemana(\'\');agendaEmprestimos()" class="rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-3 py-2.5 text-xs font-bold">Hoje</button><button onclick="agendaProximaSemana()" class="border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2.5 text-xs font-bold hover:bg-gray-50 dark:hover:bg-gray-700">Próxima <i class="fas fa-chevron-right ml-1"></i></button></div>'+
+      '</div><div class="mt-4 flex flex-col sm:flex-row sm:items-center gap-2"><label for="agenda-data" class="text-xs font-semibold text-gray-500">Ir para uma data:</label><input id="agenda-data" type="date" class="input sm:max-w-xs" value="'+inicio+'" onchange="agendaMudarSemana(this.value)"></div>'+
+    '</section>'+
+    '<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4"><div class="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-3"><div class="text-[10px] text-gray-500 font-semibold">Equipamentos</div><div class="text-2xl font-black mt-1">'+totalEquip+'</div></div><div class="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-3"><div class="text-[10px] text-gray-500 font-semibold">Reservas na semana</div><div class="text-2xl font-black text-blue-600 mt-1">'+totalReservas+'</div></div><div class="col-span-2 sm:col-span-1 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-3"><div class="text-[10px] text-gray-500 font-semibold">Dias organizados</div><div class="text-2xl font-black mt-1">5</div></div></div>'+
+    '<div class="flex items-center justify-between gap-2 mb-3"><h3 class="font-extrabold text-sm">Programação da semana</h3><span class="text-[10px] text-gray-400">'+(esCoord?'Você pode alterar ou cancelar reservas':'Toque em Reservar para agendar')+'</span></div>'+
+    '<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">'+htmlDias+'</div>'+
+    '<p class="text-[10px] text-gray-400 mt-4"><i class="fas fa-info-circle mr-1"></i>As reservas são compartilhadas entre os usuários da escola. Cada equipamento só pode ter uma reserva por dia.</p>'
   );
 }
 function agendaMudarSemana(v){ window.agendaSemana=segundaDaSemana(v); agendaEmprestimos(); }
