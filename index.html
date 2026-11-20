@@ -1041,24 +1041,39 @@ async function addUsuario(){
   var existe = usuarios.some(function(u){ return String(u.usuario || '').trim().toLowerCase() === loginUser.toLowerCase(); });
   if(existe) return msg('Usuário já existe. Escolha outro.', 'error');
 
-  var novo = {id:Date.now(), nome:nome, usuario:loginUser, senha:senha, perfil:perfilNovo, escola:escolaBanco || escola};
-  usuarios.push(novo);
-
   if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvando...'; }
-  var salvou = await salvarDadosOnline();
-  salvarUsuariosLocalSeguro();
+  try{
+    // Usa a escola da sessão atual. A variável escolaBanco não existe neste projeto.
+    var escolaDoUsuario = String(escolaAtual || escola || '').trim();
+    if(!escolaDoUsuario) throw new Error('Não foi possível identificar a escola atual.');
 
-  if(!salvou && onlineReady){
-    usuarios = usuarios.filter(function(u){ return u.id !== novo.id; });
+    // Mantém o padrão de segurança usado no login: senha com hash PBKDF2, nunca em texto puro.
+    var credencial = await gerarHashSenha(senha);
+    var novo = {
+      id: Date.now(), nome: nome, usuario: loginUser,
+      senhaHash: credencial.hash, senhaSalt: credencial.salt,
+      perfil: perfilNovo, escola: escolaDoUsuario
+    };
+    usuarios.push(novo);
+
     salvarUsuariosLocalSeguro();
-    msg('Não foi possível salvar o usuário no servidor. Tente novamente.', 'error');
-    usuariosTela();
-    return;
-  }
+    localStorage.setItem(K, JSON.stringify(db));
+    var salvou = await salvarDadosOnline();
 
-  notify(salvou ? 'Usuário cadastrado e sincronizado com sucesso!' : 'Usuário cadastrado neste dispositivo.', salvou ? 'success' : 'warning');
-  window.__usuariosBusca = '';
-  usuariosTela();
+    if(!salvou && onlineReady){
+      usuarios = usuarios.filter(function(u){ return Number(u.id) !== Number(novo.id); });
+      salvarUsuariosLocalSeguro();
+      throw new Error('Não foi possível salvar o usuário no servidor. Tente novamente.');
+    }
+
+    notify(salvou ? 'Usuário cadastrado e sincronizado com sucesso!' : 'Usuário cadastrado neste dispositivo.', salvou ? 'success' : 'warning');
+    window.__usuariosBusca = '';
+    usuariosTela();
+  }catch(err){
+    console.error('Erro ao cadastrar usuário:', err);
+    msg(err && err.message ? err.message : 'Não foi possível cadastrar o usuário. Verifique os dados e tente novamente.', 'error');
+    if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus mr-2"></i>Cadastrar Usuário'; }
+  }
 }
 
 function removeUsuario(id){
