@@ -1474,7 +1474,7 @@ function equipamentos(){
   '</div>';
 
   var tabelaDesktop = lista.map(function(x){
-    var acoes = esCoord ? '<td class="p-4 text-right"><button onclick="excluirEquip(' + x.id + ')" class="text-red-500 font-bold text-xs hover:underline"><i class="fas fa-trash-alt"></i></button></td>' : '';
+    var acoes = esCoord ? '<td class="p-4 text-right whitespace-nowrap"><button onclick="entradaEquip(' + x.id + ')" class="text-brandGreen font-bold mr-2 text-xs bg-green-50 px-2.5 py-1.5 rounded-lg">+ Entrada</button><button onclick="saidaEquip(' + x.id + ')" class="text-yellow-700 font-bold mr-2 text-xs bg-yellow-50 px-2.5 py-1.5 rounded-lg">− Saída</button><button onclick="excluirEquip(' + x.id + ')" class="text-red-500 font-bold text-xs hover:underline"><i class="fas fa-trash-alt"></i></button></td>' : '';
     return '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition">' +
       '<td class="p-4 font-semibold">' + esc(x.nome) + '</td><td class="p-4 text-gray-500 dark:text-gray-400">' + esc(x.modelo) + '</td>' +
       '<td class="p-4 text-xs font-semibold"><span class="inline-block px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600"><i class="fas fa-palette mr-1 text-brandGreen"></i>' + esc(x.cor || '-') + '</span></td>' +
@@ -1483,11 +1483,12 @@ function equipamentos(){
   }).join('') || '<tr><td colspan="7" class="p-10 text-center"><i class="fas fa-laptop text-2xl text-gray-300 mb-2"></i><div class="text-gray-400 text-sm font-semibold">Nenhum equipamento encontrado</div><div class="text-gray-400 text-xs mt-1">Tente mudar a pesquisa ou o filtro.</div></td></tr>';
 
   var cardsMobile = lista.map(function(x){
-    var btnDel = esCoord ? '<button onclick="excluirEquip(' + x.id + ')" class="text-red-500 text-xs p-1"><i class="fas fa-trash-alt"></i></button>' : '';
+    var btnDel = esCoord ? '<button onclick="excluirEquip(' + x.id + ')" class="text-red-500 text-xs p-1"><i class="fas fa-trash-alt"></i></button>' : ''; 
+    var acoesMobile = esCoord ? '<div class="flex gap-2 pt-2 border-t dark:border-gray-700"><button onclick="entradaEquip(' + x.id + ')" class="flex-1 bg-green-50 text-brandGreen font-bold py-2 rounded-lg text-xs">+ Entrada</button><button onclick="saidaEquip(' + x.id + ')" class="flex-1 bg-yellow-50 text-yellow-700 font-bold py-2 rounded-lg text-xs">− Saída</button></div>' : '';
     return '<div class="p-4 space-y-2 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition"><div class="flex justify-between items-start"><div><div class="font-bold text-base text-gray-900 dark:text-white">' + esc(x.nome) + '</div><div class="text-xs text-gray-400">Modelo: ' + esc(x.modelo) + ' · Cor: <strong class="text-gray-700 dark:text-gray-200">' + esc(x.cor || '-') + '</strong></div></div>' + btnDel + '</div>' +
       '<div class="grid grid-cols-3 gap-2 pt-1 text-center text-xs"><div class="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg"><div class="text-gray-400 text-[10px]">TOTAL</div><div class="font-bold text-sm">' + x.total + '</div></div>' +
       '<div class="bg-green-50 dark:bg-gray-700 p-2 rounded-lg text-brandGreen"><div class="text-[10px]">DISP.</div><div class="font-bold text-sm">' + x.disp + '</div></div>' +
-      '<div class="bg-yellow-50 dark:bg-gray-700 p-2 rounded-lg text-yellow-700"><div class="text-[10px]">EMPR.</div><div class="font-bold text-sm">' + x.emp + '</div></div></div></div>';
+      '<div class="bg-yellow-50 dark:bg-gray-700 p-2 rounded-lg text-yellow-700"><div class="text-[10px]">EMPR.</div><div class="font-bold text-sm">' + x.emp + '</div></div></div>' + acoesMobile + '</div>';
   }).join('') || '<div class="p-8 text-center text-gray-400 text-xs">Nenhum equipamento encontrado.</div>';
 
   shell(head('Equipamentos','Consulta e cadastro de equipamentos por cor') +
@@ -1538,10 +1539,73 @@ function saveEquip(){
     emp: 0
   });
 
-  hist('Cadastro', nome, qtd + ' un.', 'Modelo: ' + modelo + ' · Cor: ' + cor);
+  var equipamentoNovo=db.equip[db.equip.length-1];
+  sincronizarEquipNoEstoque(equipamentoNovo,qtd);
+  hist('Cadastro', nome, qtd + ' un.', 'Modelo: ' + modelo + ' · Cor: ' + cor + ' · Também cadastrado no Estoque');
   save();
   notify('Equipamento salvo com sucesso!', 'success');
   equipamentos();
+}
+
+// Mantém o total de equipamentos espelhado no Estoque de materiais.
+// O estoque guarda o total físico; disponíveis/emprestados continuam na aba Equipamentos.
+function sincronizarEquipNoEstoque(e,delta){
+  if(!Array.isArray(db.materiais)) db.materiais=[];
+  var nome=String(e.nome||'').trim();
+  var item=db.materiais.find(function(m){return String(m.nome||'').trim().toLowerCase()===nome.toLowerCase();});
+  if(!item){
+    item={id:Date.now()+Math.floor(Math.random()*1000),nome:nome,cat:'Equipamentos',qtd:Math.max(0,Number(e.total||0)),min:0,un:'unidade'};
+    db.materiais.push(item);
+  }else{
+    item.qtd=Math.max(0,Number(item.qtd||0)+Number(delta||0));
+    item.cat=item.cat||'Equipamentos'; item.un=item.un||'unidade';
+  }
+  return item;
+}
+function entradaEquip(id){
+  if(perfil!=='Coordenador') return;
+  var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
+  if(!e) return;
+  shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">'+
+    '<h2 class="text-xl font-bold text-brandGreen mb-1"><i class="fas fa-plus-circle mr-2"></i>Entrada de Equipamentos</h2>'+ 
+    '<p class="text-xs text-gray-500 mb-4">'+esc(e.nome)+' · Total atual: '+Number(e.total||0)+' · Disponível: '+Number(e.disp||0)+'</p>'+ 
+    '<label class="label">Quantidade a adicionar</label><input id="qntEntradaEquip" type="number" min="1" step="1" class="input mb-4" placeholder="Ex.: 5">'+
+    '<button onclick="confirmarEntradaEquip('+e.id+')" class="w-full bg-brandGreen text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Entrada</button>'+ 
+    '<button onclick="equipamentos()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button></div>');
+}
+function confirmarEntradaEquip(id){
+  if(perfil!=='Coordenador') return;
+  var q=Number(document.getElementById('qntEntradaEquip')?.value||0);
+  var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
+  if(!e) return;
+  if(!Number.isInteger(q)||q<1) return msg('Informe uma quantidade inteira maior que zero.','error');
+  e.total=Number(e.total||0)+q; e.disp=Number(e.disp||0)+q;
+  sincronizarEquipNoEstoque(e,q);
+  hist('Entrada',e.nome,'+'+q+' unidade(s)','Entrada de equipamento · '+(usuarioAtual?usuarioAtual.nome:'Coordenador'));
+  save(); notify('Entrada registrada e quantidade sincronizada com o Estoque.','success'); equipamentos();
+}
+function saidaEquip(id){
+  if(perfil!=='Coordenador') return;
+  var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
+  if(!e) return;
+  shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">'+
+    '<h2 class="text-xl font-bold text-red-500 mb-1"><i class="fas fa-minus-circle mr-2"></i>Baixa de Equipamentos</h2>'+ 
+    '<p class="text-xs text-gray-500 mb-4">'+esc(e.nome)+' · Disponível para baixa: '+Number(e.disp||0)+' (emprestados: '+Number(e.emp||0)+')</p>'+ 
+    '<label class="label">Quantidade a retirar do patrimônio</label><input id="qntSaidaEquip" type="number" min="1" max="'+Number(e.disp||0)+'" step="1" class="input mb-4" placeholder="Ex.: 1">'+
+    '<button onclick="confirmarSaidaEquip('+e.id+')" class="w-full bg-red-500 text-white p-3.5 rounded-xl font-bold text-sm mb-2">Confirmar Baixa</button>'+ 
+    '<button onclick="equipamentos()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button></div>');
+}
+function confirmarSaidaEquip(id){
+  if(perfil!=='Coordenador') return;
+  var q=Number(document.getElementById('qntSaidaEquip')?.value||0);
+  var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
+  if(!e) return;
+  if(!Number.isInteger(q)||q<1) return msg('Informe uma quantidade inteira maior que zero.','error');
+  if(q>Number(e.disp||0)) return msg('Não é possível dar baixa em unidades emprestadas ou indisponíveis. Disponíveis: '+Number(e.disp||0)+'.','error');
+  e.total=Math.max(0,Number(e.total||0)-q); e.disp=Math.max(0,Number(e.disp||0)-q);
+  sincronizarEquipNoEstoque(e,-q);
+  hist('Saída',e.nome,'-'+q+' unidade(s)','Baixa de equipamento · '+(usuarioAtual?usuarioAtual.nome:'Coordenador'));
+  save(); notify('Baixa registrada e quantidade sincronizada com o Estoque.','success'); equipamentos();
 }
 
 function excluirEquip(id){
