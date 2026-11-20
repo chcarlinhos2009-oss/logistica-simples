@@ -332,7 +332,7 @@ function normalizarUsuarios(lista){
     var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
     return Object.assign({}, u, {perfil: p});
   }).filter(function(u){
-    return p === 'Coordenador' || p === 'Professor';
+    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
   });
 
   var temAdmin = lista.some(function(u){ return String(u.usuario || '').toLowerCase() === 'admin'; });
