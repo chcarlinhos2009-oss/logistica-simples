@@ -998,7 +998,6 @@ function usuariosTela(){
     '<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl border mb-5 shadow-sm">' +
       '<div class="flex items-center justify-between gap-3 mb-4"><div><h2 class="font-bold text-base">Novo usuário</h2><p class="text-xs text-gray-400 mt-1">Cadastre acessos para esta escola.</p></div><i class="fas fa-user-plus text-brandGreen text-xl"></i></div>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
-        '<div><label class="label">Nome</label><input id="unome" class="input" placeholder="Nome completo" autocomplete="name"></div>' +
         '<div><label class="label">Usuário</label><input id="uuser" class="input" placeholder="Nome de usuário" autocomplete="username"></div>' +
         '<div><label class="label">Senha</label><input id="usenha" type="password" class="input" placeholder="Senha" autocomplete="new-password"></div>' +
         '<div><label class="label">Perfil</label><select id="uperfil" class="input"><option>Professor</option><option>Coordenador</option></select></div>' +
@@ -1024,17 +1023,15 @@ function filtrarUsuarios(valor){
 
 async function addUsuario(){
   if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
-  var unome = document.getElementById('unome');
   var uuser = document.getElementById('uuser');
   var usenha = document.getElementById('usenha');
   var uperfil = document.getElementById('uperfil');
   var btn = document.getElementById('btn-add-usuario');
-  var nome = unome ? unome.value.trim() : '';
   var loginUser = uuser ? uuser.value.trim() : '';
   var senha = usenha ? usenha.value : '';
   var perfilNovo = uperfil ? uperfil.value : 'Professor';
 
-  if(!nome || !loginUser || !senha) return msg('Preencha todos os campos.', 'error');
+  if(!loginUser || !senha) return msg('Preencha todos os campos.', 'error');
   if(loginUser.length < 3) return msg('O usuário deve ter pelo menos 3 caracteres.', 'error');
   if(senha.length < 4) return msg('A senha deve ter pelo menos 4 caracteres.', 'error');
 
@@ -1050,7 +1047,7 @@ async function addUsuario(){
     // Mantém o padrão de segurança usado no login: senha com hash PBKDF2, nunca em texto puro.
     var credencial = await gerarHashSenha(senha);
     var novo = {
-      id: Date.now(), nome: nome, usuario: loginUser,
+      id: Date.now(), nome: loginUser, usuario: loginUser,
       senhaHash: credencial.hash, senhaSalt: credencial.salt,
       perfil: perfilNovo, escola: escolaDoUsuario
     };
