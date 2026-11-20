@@ -1853,7 +1853,7 @@ async function emprestimos(){
       '<td class="p-4 font-semibold text-brandGreen">' + esc(l.pessoa) + '</td>' +
       '<td class="p-4 text-gray-500 dark:text-gray-400">' + esc(l.destino) +
         (l.observacao ? '<div class="text-[11px] text-gray-400 mt-1">' + esc(l.observacao) + '</div>' : '') + '</td>' +
-      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) + '</td>' +
+      '<td class="p-4 text-xs text-gray-400">' + esc(l.data) + (l.prazoDevolucao ? '<div class="mt-1 text-amber-600 font-semibold">Devolver até: ' + esc(new Date(l.prazoDevolucao).toLocaleString('pt-BR')) + '</div>' : '<div class="mt-1">Sem prazo definido</div>') + '</td>' +
       '<td class="p-4 text-right"><button onclick="devolver(' + l.id + ')" class="bg-green-50 hover:bg-green-100 text-brandGreen font-bold px-3 py-1.5 rounded-lg text-xs">Devolver</button></td>' +
     '</tr>';
   }).join('') || '<tr><td colspan="7" class="p-8 text-center text-gray-400">Nenhum item emprestado no momento.</td></tr>';
@@ -1875,6 +1875,7 @@ async function emprestimos(){
       '<div class="text-gray-500">Destino: ' + esc(l.destino) + '</div>' +
       (l.observacao ? '<div class="text-gray-500 mt-1">Observação: ' + esc(l.observacao) + '</div>' : '') +
       '<div class="text-[10px] text-gray-400">Registrado em: ' + esc(l.data) + '</div>' +
+      (l.prazoDevolucao ? '<div class="text-[11px] text-amber-600 font-semibold">Devolver até: ' + esc(new Date(l.prazoDevolucao).toLocaleString('pt-BR')) + '</div>' : '<div class="text-[11px] text-gray-400">Sem prazo definido</div>') +
       '<button onclick="devolver(' + l.id + ')" class="w-full bg-brandGreen hover:opacity-90 text-white font-bold py-2 rounded-xl text-center mt-2">Devolver</button>' +
     '</div>';
   }).join('') || '<div class="p-6 text-center text-gray-400 text-xs">Nenhum item emprestado.</div>';
@@ -1902,6 +1903,11 @@ async function emprestimos(){
         '<div>' +
           '<label class="label">Quem retirou?</label>' +
           '<input id="lp" class="input" placeholder="Ex.: Prof. Carlos" value="' + nomeUsuarioVal + '">' +
+        '</div>' +
+        '<div>' +
+          '<label class="label">Prazo para devolução</label>' +
+          '<input id="lprazo" type="datetime-local" class="input" required>' +
+          '<p class="text-[10px] text-gray-400 mt-1">Escolha a data e o horário limite.</p>' +
         '</div>' +
         '<div class="sm:col-span-2">' +
           '<label class="label">Sala / setor / destino</label>' +
@@ -1945,10 +1951,15 @@ async function addEmp(){
   var pessoa = lp ? lp.value.trim() : '';
   var destino = ld ? ld.value.trim() : '';
   var observacao = obsEl ? obsEl.value.trim() : '';
+  var prazoEl = document.getElementById('lprazo');
+  var prazoValor = prazoEl ? prazoEl.value : '';
+  var prazoDevolucao = prazoValor ? new Date(prazoValor) : null;
 
   if(!valor) return msg('Selecione um material ou equipamento.', 'error');
   if(!q || q <= 0) return msg('Informe uma quantidade válida.', 'error');
   if(!pessoa || !destino) return msg('Preencha quem retirou e a sala/setor.', 'error');
+  if(!prazoValor || !prazoDevolucao || isNaN(prazoDevolucao.getTime()) || prazoDevolucao.getTime() <= Date.now())
+    return msg('Escolha um prazo de devolução futuro.', 'error');
 
   var partes = valor.split(':');
   var tipo = partes[0];
@@ -1996,6 +2007,7 @@ async function addEmp(){
     pessoa: pessoa,
     destino: destino,
     data: data,
+    prazoDevolucao: prazoDevolucao.toISOString(),
     observacao: observacao,
     ativo: true,
     tipo: e ? 'Equipamento' : 'Material',
