@@ -1645,61 +1645,110 @@ async function agendaEmprestimos(){
 function agendaMudarSemana(v){ window.agendaSemana=segundaDaSemana(v); agendaEmprestimos(); }
 function agendaSemanaAnterior(){ var d=new Date(segundaDaSemana(window.agendaSemana)+'T12:00:00'); d.setDate(d.getDate()-7); window.agendaSemana=dataLocalISO(d); agendaEmprestimos(); }
 function agendaProximaSemana(){ var d=new Date(segundaDaSemana(window.agendaSemana)+'T12:00:00'); d.setDate(d.getDate()+7); window.agendaSemana=dataLocalISO(d); agendaEmprestimos(); }
+// Modal próprio da agenda: substitui prompt/confirm nativos do navegador.
+window.agendaModalDados = null;
+function agendaFecharModal(){
+  var modal=document.getElementById('agenda-form-modal');
+  if(modal) modal.remove();
+  window.agendaModalDados=null;
+}
+function agendaAbrirFormulario(titulo,descricao,campos,dados){
+  window.agendaModalDados=dados||{};
+  var modal=document.getElementById('agenda-form-modal');
+  if(modal) modal.remove();
+  modal=document.createElement('div');
+  modal.id='agenda-form-modal';
+  modal.className='fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm p-3 sm:p-5 flex items-center justify-center';
+  modal.innerHTML='<div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">'+
+    '<div class="p-5 border-b border-gray-100 dark:border-gray-700 flex items-start gap-3"><div class="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 flex items-center justify-center"><i class="fas fa-calendar-days text-lg"></i></div><div class="flex-1"><h3 class="font-extrabold text-lg">'+esc(titulo)+'</h3><p class="text-xs text-gray-500 dark:text-gray-400 mt-1">'+esc(descricao)+'</p></div><button type="button" onclick="agendaFecharModal()" class="text-gray-400 hover:text-gray-700 p-1"><i class="fas fa-times"></i></button></div>'+
+    '<form onsubmit="agendaSalvarFormulario(event)" class="p-5 space-y-4">'+campos+
+    '<div class="flex gap-2 pt-2"><button type="button" onclick="agendaFecharModal()" class="flex-1 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-bold">Voltar</button><button type="submit" class="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold"><i class="fas fa-check mr-1"></i> Salvar</button></div></form></div>';
+  document.body.appendChild(modal);
+  var primeiro=modal.querySelector('input,select');
+  if(primeiro) primeiro.focus();
+}
+function agendaCampo(label,id,value,type){
+  return '<label class="block"><span class="block text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5">'+label+'</span><input id="'+id+'" type="'+(type||'text')+'" value="'+esc(String(value||''))+'" required class="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"></label>';
+}
+async function agendaSalvarFormulario(event){
+  event.preventDefault();
+  var dados=window.agendaModalDados||{};
+  var nome=document.getElementById('agenda-professor')?.value.trim()||'';
+  var data=document.getElementById('agenda-data-modal')?.value||dados.data||'';
+  var equipamento=document.getElementById('agenda-equipamento')?.value||String(dados.equipId||'');
+  var quantidade=Number(document.getElementById('agenda-quantidade')?.value||1);
+  if(!nome) return msg('Selecione ou informe o professor responsável.','warning');
+  if(!Number.isInteger(quantidade)||quantidade<1) return msg('Informe uma quantidade válida.','warning');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(data) || new Date(data+'T12:00:00').getDay()===0 || new Date(data+'T12:00:00').getDay()===6) return msg('Escolha uma data válida, de segunda a sexta-feira.','warning');
+  var eq=db.equip.find(function(e){return Number(e.id)===Number(equipamento);});
+  if(!eq) return msg('Selecione um equipamento válido.','error');
+  if(dados.acao==='reservar' && data<dataLocalISO(new Date())) return msg('Não é possível reservar uma data que já passou.','warning');
+  try{
+    var existentes=await sbRequest('ls_agenda_emprestimos','GET','select=id,data,quantidade&escola=eq.'+encodeURIComponent(escola)+'&equipamento_id=eq.'+encodeURIComponent(eq.id)+'&data=eq.'+encodeURIComponent(data));
+    var soma=(existentes||[]).filter(function(r){return String(r.id)!==String(dados.id||'');}).reduce(function(t,r){return t+Number(r.quantidade||1);},0);
+    if(soma+quantidade>Number(eq.disp||0)) return msg('Quantidade insuficiente para essa data. Disponível para reservar: '+Math.max(0,Number(eq.disp||0)-soma)+'.','error');
+    var payload={escola:escola,equipamento_id:Number(eq.id),equipamento_nome:eq.nome,data:data,professor:nome,quantidade:quantidade};
+    if(dados.acao==='reservar'){
+      payload.usuario=String((usuarioAtual&&usuarioAtual.usuario)||nome); payload.criado_em=new Date().toISOString();
+      await sbRequest('ls_agenda_emprestimos','POST','',payload,{'Prefer':'return=minimal'});
+      agendaFecharModal(); notify(quantidade+' unidade(s) reservada(s) para '+nome+'.','success'); agendaEmprestimos();
+    }else if(dados.acao==='editar'){
+      await sbRequest('ls_agenda_emprestimos','PATCH','id=eq.'+encodeURIComponent(dados.id)+'&escola=eq.'+encodeURIComponent(escola),{professor:nome,data:data,equipamento_id:Number(eq.id),equipamento_nome:eq.nome,quantidade:quantidade},{'Prefer':'return=minimal'});
+      agendaFecharModal(); notify('Reserva alterada com sucesso.','success'); agendaEmprestimos();
+    }
+  }catch(err){console.error(err);msg(String(err.message||'').indexOf('409')!==-1 || String(err.message||'').indexOf('duplicate')!==-1 ? 'Já existe uma reserva para esse equipamento nessa data. Altere a reserva existente para ajustar a quantidade.' : 'Não foi possível salvar. Confira se executou o SQL de atualização da agenda.','error');}
+}
 async function agendaReservar(equipId,data){
   var eq=db.equip.find(function(x){return Number(x.id)===Number(equipId);});
   if(!eq) return msg('Equipamento não encontrado.','error');
-  var nome=usuarioNomeAtual();
-  if(perfil==='Coordenador'){
-    var informado=prompt('Nome do professor que utilizará o equipamento:',nome);
-    if(informado===null) return; nome=informado.trim();
-  }
-  if(!nome) return msg('Informe o nome do professor.','error');
   if(data < dataLocalISO(new Date())) return msg('Não é possível reservar uma data que já passou.','error');
-  var diaReserva = new Date(data+'T12:00:00').getDay();
+  var diaReserva=new Date(data+'T12:00:00').getDay();
   if(diaReserva===0 || diaReserva===6) return msg('A agenda permite reservas somente de segunda a sexta-feira.','error');
-  var conflito=(db.emp||[]).some(function(l){return l.ativo && Number(l.equipId)===Number(eq.id) && String(l.dataPrevistaRetirada||'')<=data && String(l.dataPrevistaDevolucao||l.dataPrevistaRetirada||'')>=data;});
-  if(conflito) return msg('Este equipamento já está emprestado nessa data.','error');
-  try{
-    await sbRequest('ls_agenda_emprestimos','POST','',{
-      escola:escola,equipamento_id:Number(eq.id),equipamento_nome:eq.nome,data:data,
-      professor:nome,usuario:String((usuarioAtual&&usuarioAtual.usuario)||nome),criado_em:new Date().toISOString()
-    },{'Prefer':'return=minimal'});
-    notify('Equipamento reservado para '+dataLegivel(data)+'.','success');
-    agendaEmprestimos();
-  }catch(err){
-    console.error(err);
-    msg(String(err.message||'').indexOf('409')!==-1 || String(err.message||'').indexOf('duplicate')!==-1 ? 'Este equipamento já foi reservado por outra pessoa para esse dia.' : 'Não foi possível reservar. Verifique a configuração da agenda no Supabase.','error');
-    agendaEmprestimos();
+  var professores=(usuarios||[]).filter(function(u){return String(u.perfil||'').toLowerCase()==='professor';});
+  var campos='';
+  if(perfil==='Coordenador'){
+    var profOpts=professores.map(function(u){return '<option value="'+esc(u.nome||u.usuario)+'">'+esc(u.nome||u.usuario)+'</option>';}).join('');
+    campos+='<label class="block"><span class="block text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5">Professor responsável</span><select id="agenda-professor" required class="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-3 py-3 text-sm"><option value="">Selecione um professor</option>'+profOpts+'</select></label>';
+    var opcoes=db.equip.map(function(e){return '<option value="'+e.id+'" '+(Number(e.id)===Number(eq.id)?'selected':'')+'>'+esc(e.nome)+'</option>';}).join('');
+    campos+='<label class="block"><span class="block text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5">Equipamento</span><select id="agenda-equipamento" class="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-3 py-3 text-sm">'+opcoes+'</select></label>';
+  }else{
+    campos+=agendaCampo('Professor responsável','agenda-professor',usuarioNomeAtual());
   }
+  campos+=agendaCampo('Data da reserva','agenda-data-modal',data,'date');
+  campos+=agendaCampo('Quantidade','agenda-quantidade',1,'number').replace('type="number" value="1"','type="number" min="1" step="1" value="1"');
+  agendaAbrirFormulario('Nova reserva','Escolha o professor, o equipamento, a data e a quantidade.',campos,{acao:'reservar',data:data,equipId:eq.id});
 }
 async function agendaEditar(id){
   if(perfil!=='Coordenador') return msg('Somente o coordenador pode alterar reservas.','error');
   try{
     var rows=await sbRequest('ls_agenda_emprestimos','GET','select=*&id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola)+'&limit=1');
     if(!rows||!rows.length) return msg('Reserva não encontrada.','error');
-    var r=rows[0], eqAtual=String(r.equipamento_id);
-    var nome=prompt('Nome do professor:',r.professor||''); if(nome===null)return;
-    var data=prompt('Data da reserva (AAAA-MM-DD):',String(r.data)); if(data===null)return;
-    var opcoes=db.equip.map(function(e){return e.id+': '+e.nome;}).join('\n');
-    var equipamento=prompt('ID do equipamento (lista):\n'+opcoes,eqAtual); if(equipamento===null)return;
-    var novoId=Number(equipamento.split(':')[0]);
-    var eq=db.equip.find(function(e){return Number(e.id)===novoId;});
-    var diaEditado = new Date(data+'T12:00:00').getDay();
-    if(!eq || !/^\d{4}-\d{2}-\d{2}$/.test(data) || !nome.trim() || diaEditado===0 || diaEditado===6) return msg('Confira o nome, a data (segunda a sexta) e o equipamento.','error');
-    await sbRequest('ls_agenda_emprestimos','PATCH','id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola),{professor:nome.trim(),data:data,equipamento_id:novoId,equipamento_nome:eq.nome},{'Prefer':'return=minimal'});
-    notify('Reserva alterada com sucesso.','success'); agendaEmprestimos();
-  }catch(err){console.error(err);msg('Não foi possível alterar. Pode já existir outra reserva para esse equipamento nessa data.','error');}
+    var r=rows[0];
+    var professores=(usuarios||[]).filter(function(u){return String(u.perfil||'').toLowerCase()==='professor';});
+    var profOpts=professores.map(function(u){var n=u.nome||u.usuario;return '<option value="'+esc(n)+'" '+(String(n)===String(r.professor)?'selected':'')+'>'+esc(n)+'</option>';}).join('');
+    if(!professores.some(function(u){return String(u.nome||u.usuario)===String(r.professor);})) profOpts='<option value="'+esc(r.professor||'')+'" selected>'+esc(r.professor||'Professor')+'</option>'+profOpts;
+    var campos='<label class="block"><span class="block text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5">Professor responsável</span><select id="agenda-professor" required class="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-3 py-3 text-sm">'+profOpts+'</select></label>';
+    campos+=agendaCampo('Data da reserva','agenda-data-modal',String(r.data),'date');
+    var opcoes=db.equip.map(function(e){return '<option value="'+e.id+'" '+(Number(e.id)===Number(r.equipamento_id)?'selected':'')+'>'+esc(e.nome)+'</option>';}).join('');
+    campos+='<label class="block"><span class="block text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5">Equipamento</span><select id="agenda-equipamento" class="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-3 py-3 text-sm">'+opcoes+'</select></label>';
+    campos+=agendaCampo('Quantidade','agenda-quantidade',Number(r.quantidade||1),'number').replace('type="number"','type="number" min="1" step="1"');
+    agendaAbrirFormulario('Alterar reserva','Atualize o professor, equipamento, data ou quantidade.',campos,{acao:'editar',id:id});
+  }catch(err){console.error(err);msg('Não foi possível carregar a reserva.','error');}
 }
 async function agendaCancelar(id){
   if(perfil!=='Coordenador') return msg('Somente o coordenador pode cancelar reservas.','error');
-  if(!confirm('Deseja cancelar esta reserva?')) return;
-  try{
-    await sbRequest('ls_agenda_emprestimos','DELETE','id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola));
-    notify('Reserva cancelada.','success'); agendaEmprestimos();
-  }catch(err){console.error(err);msg('Não foi possível cancelar a reserva.','error');}
+  pedirConfirmacao('Deseja realmente cancelar esta reserva? O equipamento ficará disponível nessa data.',async function(){
+    try{
+      await sbRequest('ls_agenda_emprestimos','DELETE','id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola));
+      notify('Reserva cancelada.','success'); agendaEmprestimos();
+    }catch(err){console.error(err);msg('Não foi possível cancelar a reserva.','error');}
+  });
 }
 
-function emprestimos(){
+async function emprestimos(){
+  var reservasFuturas=[];
+  try{reservasFuturas=await sbRequest('ls_agenda_emprestimos','GET','select=*&escola=eq.'+encodeURIComponent(escola)+'&data=gte.'+dataLocalISO(new Date())+'&order=data.asc');}catch(err){console.error('Não foi possível carregar reservas na aba Empréstimos:',err);}
+  reservasFuturas=Array.isArray(reservasFuturas)?reservasFuturas:[];
   var disponiveisMateriais = db.materiais.filter(function(p){ return Number(p.qtd || 0) > 0; });
   var disponiveisEquipamentos = db.equip.filter(function(e){ return Number(e.disp || 0) > 0; });
   var ativos = db.emp.filter(function(x){ return x.ativo; });
@@ -1798,6 +1847,7 @@ function emprestimos(){
         '<i class="fas fa-hand-holding mr-1.5"></i>Confirmar Retirada' +
       '</button>' +
     '</div>' +
+    (reservasFuturas.length ? '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden mb-5"><div class="p-4 border-b flex items-center justify-between gap-2"><div><h2 class="font-bold text-sm">Reservas agendadas</h2><p class="text-xs text-gray-400 mt-1">Equipamentos separados para uso futuro</p></div><span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full text-[10px] font-bold">'+reservasFuturas.length+' reserva(s)</span></div><div class="divide-y dark:divide-gray-700">'+reservasFuturas.map(function(r){var eq=db.equip.find(function(e){return Number(e.id)===Number(r.equipamento_id);});return '<div class="p-4 flex flex-wrap items-center justify-between gap-3 text-xs"><div><div class="font-bold text-sm">'+esc((eq&&eq.nome)||r.equipamento_nome||'Equipamento')+'</div><div class="text-gray-500 mt-1">Professor: <b>'+esc(r.professor||'-')+'</b> · Data: '+dataLegivel(String(r.data))+'</div></div><span class="rounded-xl bg-blue-50 text-blue-700 px-3 py-2 font-extrabold">'+Number(r.quantidade||1)+' unidade(s) reservada(s)</span></div>';}).join('')+'</div></div>' : '') +
     '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden">' +
       '<div class="p-4 border-b font-bold text-sm flex justify-between items-center gap-3">' +
         '<span>Itens Emprestados Atualmente</span>' +
@@ -1849,8 +1899,9 @@ async function addEmp(){
     try{
       var hoje = dataLocalISO(new Date());
       var agendados = await sbRequest('ls_agenda_emprestimos','GET',
-        'select=id,data,professor&escola=eq.'+encodeURIComponent(escola)+'&equipamento_id=eq.'+encodeURIComponent(e.id)+'&data=gte.'+hoje+'&order=data.asc&limit=1');
-      if(agendados && agendados.length) return msg('Este equipamento já possui reserva futura para '+(agendados[0].professor||'outro professor')+' em '+dataLegivel(agendados[0].data)+'. Consulte a Agenda de Empréstimos.','error');
+        'select=id,data,professor,quantidade&escola=eq.'+encodeURIComponent(escola)+'&equipamento_id=eq.'+encodeURIComponent(e.id)+'&data=gt.'+hoje+'&order=data.asc');
+      var reservado=Math.max.apply(null,[0].concat((agendados||[]).map(function(r){return Number(r.quantidade||1);} )));
+      if(q>Number(e.disp||0)-reservado) return msg('Há '+reservado+' unidade(s) reservada(s) para uso futuro. Disponível para retirada agora: '+Math.max(0,Number(e.disp||0)-reservado)+'.','error');
     }catch(err){
       console.error(err);
       return msg('Não foi possível verificar a agenda online. A retirada de equipamentos foi bloqueada por segurança.','error');
