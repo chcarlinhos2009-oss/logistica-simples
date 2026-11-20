@@ -332,7 +332,7 @@ function normalizarUsuarios(lista){
     var p = u.perfil === 'Gestor' ? 'Coordenador' : (u.perfil === 'Funcionário' ? 'Professor' : u.perfil);
     return Object.assign({}, u, {perfil: p});
   }).filter(function(u){
-    return u.perfil === 'Coordenador' || u.perfil === 'Professor';
+    return u.ehCoordenador() || u.perfil === 'Professor';
   });
 
   var temAdmin = lista.some(function(u){ return String(u.usuario || '').toLowerCase() === 'admin'; });
@@ -493,6 +493,11 @@ async function inicializarApp(){
 }
 
 var perfil = (usuarioAtual && usuarioAtual.perfil) ? usuarioAtual.perfil : 'Coordenador';
+// Reconhece o perfil de coordenador mesmo quando vem com caixa/acentuação/ espaços diferentes.
+function ehCoordenador(){
+  var p=String((usuarioAtual && usuarioAtual.perfil) || perfil || '').trim().toLowerCase();
+  return p==='coordenador' || p==='coordenadora' || p==='gestor' || p==='administrador' || p==='admin';
+}
 var escola = escolaAtual || '';
 
 function esc(x){
@@ -949,7 +954,7 @@ async function login(tipo){
 function logout(){ if(sessionTimer) clearInterval(sessionTimer); sessionTimer=null; sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem('ls_user'); usuarioAtual = null; notify('Você saiu do sistema com segurança.', 'warning'); telaInicial(); }
 
 function usuariosTela(){
-  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  if(!ehCoordenador()) return msg('Acesso permitido somente ao Coordenador.', 'error');
 
   var buscaAtual = window.__usuariosBusca || '';
   var termo = buscaAtual.trim().toLowerCase();
@@ -1022,7 +1027,7 @@ function filtrarUsuarios(valor){
 }
 
 async function addUsuario(){
-  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  if(!ehCoordenador()) return msg('Acesso permitido somente ao Coordenador.', 'error');
   var uuser = document.getElementById('uuser');
   var usenha = document.getElementById('usenha');
   var uperfil = document.getElementById('uperfil');
@@ -1074,7 +1079,7 @@ async function addUsuario(){
 }
 
 function removeUsuario(id){
-  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  if(!ehCoordenador()) return msg('Acesso permitido somente ao Coordenador.', 'error');
   var alvo = usuarios.find(function(u){ return Number(u.id) === Number(id); });
   if(!alvo) return;
   if(String(alvo.usuario || '').toLowerCase() === 'admin') return msg('O usuário principal não pode ser excluído.', 'warning');
@@ -1165,7 +1170,7 @@ function fecharAlteracaoSenha(){
 }
 
 function dashboard(){
-  var esCoord = perfil === 'Coordenador';
+  var esCoord = ehCoordenador();
   var materiais = Array.isArray(db.materiais) ? db.materiais : [];
   var equipamentos = Array.isArray(db.equip) ? db.equip : [];
   var emprestimos = Array.isArray(db.emp) ? db.emp : [];
@@ -1248,7 +1253,7 @@ function dashboard(){
 }
 
 function materiais(){
-  var esCoord = perfil === 'Coordenador';
+  var esCoord = ehCoordenador();
   var busca = (window.filtroMateriaisBusca || '').toLowerCase().trim();
   var statusFiltro = window.filtroMateriaisStatus || 'todos';
   var lista = db.materiais.filter(function(p){
@@ -1317,7 +1322,7 @@ function filtrarMateriaisV5(){
 function limparFiltrosMateriaisV5(){ window.filtroMateriaisBusca=''; window.filtroMateriaisStatus='todos'; materiais(); }
 
 function excluirMaterial(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var p = db.materiais.find(function(x){ return x.id === id; });
   if (!p) return;
   
@@ -1331,7 +1336,7 @@ function excluirMaterial(id){
 }
 
 function formMat(){
-  if(perfil!=='Coordenador') return; 
+  if(!ehCoordenador()) return; 
   shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
     formTitle('Novo material') +
     '<label class="label">Nome</label><input id="mn" class="input" placeholder="Ex.: Papel A4">' +
@@ -1348,7 +1353,7 @@ function formTitle(t){ return '<h2 class="text-xl sm:text-2xl font-bold text-bra
 
 function saveMat(){
   var mn = document.getElementById('mn'), mc = document.getElementById('mc'), mq = document.getElementById('mq'), mm = document.getElementById('mm'), mu = document.getElementById('mu');
-  if(perfil!=='Coordenador') return; 
+  if(!ehCoordenador()) return; 
   if(!mn.value || Number(mq.value)<0 || Number(mm.value)<0) return msg('Preencha os dados.', 'error');
   
   var qtd = Number(mq.value);
@@ -1369,7 +1374,7 @@ function saveMat(){
 }
 
 function entrada(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var p = db.materiais.find(function(x){ return x.id === id; });
   if (!p) return;
   shell(
@@ -1385,7 +1390,7 @@ function entrada(id){
 }
 
 function confirmarEntrada(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var qInput = document.getElementById('qntEntrada');
   var q = Number(qInput ? qInput.value : 0);
   if(!q || q <= 0){
@@ -1403,7 +1408,7 @@ function confirmarEntrada(id){
 }
 
 function saida(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var p = db.materiais.find(function(x){ return x.id === id; });
   if (!p) return;
   shell(
@@ -1419,7 +1424,7 @@ function saida(id){
 }
 
 function confirmarSaida(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var qInput = document.getElementById('qntSaida');
   var q = Number(qInput ? qInput.value : 0);
   var p = db.materiais.find(function(x){ return x.id === id; });
@@ -1448,7 +1453,7 @@ function confirmarSaida(id){
 }
 
 function equipamentos(){
-  var esCoord = perfil === 'Coordenador';
+  var esCoord = ehCoordenador();
   var busca = (window.filtroEquipBusca || '').toLowerCase().trim();
   var statusFiltro = window.filtroEquipStatus || 'todos';
   var lista = db.equip.filter(function(x){
@@ -1499,7 +1504,7 @@ function filtrarEquipV5(){ window.filtroEquipBusca=document.getElementById('filt
 function limparFiltrosEquipV5(){ window.filtroEquipBusca=''; window.filtroEquipStatus='todos'; equipamentos(); }
 
 function formEquip(){
-  if(perfil!=='Coordenador') return; 
+  if(!ehCoordenador()) return; 
   shell(
     '<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">' +
       formTitle('Novo Equipamento') +
@@ -1519,7 +1524,7 @@ function formEquip(){
 
 function saveEquip(){
   var en = document.getElementById('en'), em = document.getElementById('em'), ec = document.getElementById('ec'), eq = document.getElementById('eq');
-  if(perfil!=='Coordenador') return;
+  if(!ehCoordenador()) return;
   var nome = en.value.trim();
   var modelo = em.value.trim();
   var cor = ec.value.trim();
@@ -1563,7 +1568,7 @@ function sincronizarEquipNoEstoque(e,delta){
   return item;
 }
 function entradaEquip(id){
-  if(perfil!=='Coordenador') return;
+  if(!ehCoordenador()) return;
   var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
   if(!e) return;
   shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">'+
@@ -1574,7 +1579,7 @@ function entradaEquip(id){
     '<button onclick="equipamentos()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button></div>');
 }
 function confirmarEntradaEquip(id){
-  if(perfil!=='Coordenador') return;
+  if(!ehCoordenador()) return;
   var q=Number(document.getElementById('qntEntradaEquip')?.value||0);
   var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
   if(!e) return;
@@ -1585,7 +1590,7 @@ function confirmarEntradaEquip(id){
   save(); notify('Entrada registrada e quantidade sincronizada com o Estoque.','success'); equipamentos();
 }
 function saidaEquip(id){
-  if(perfil!=='Coordenador') return;
+  if(!ehCoordenador()) return;
   var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
   if(!e) return;
   shell('<div class="bg-white dark:bg-gray-800 p-5 sm:p-7 rounded-3xl shadow-md max-w-md mx-auto">'+
@@ -1596,7 +1601,7 @@ function saidaEquip(id){
     '<button onclick="equipamentos()" class="w-full text-gray-400 font-semibold text-xs py-2">Cancelar</button></div>');
 }
 function confirmarSaidaEquip(id){
-  if(perfil!=='Coordenador') return;
+  if(!ehCoordenador()) return;
   var q=Number(document.getElementById('qntSaidaEquip')?.value||0);
   var e=db.equip.find(function(x){return Number(x.id)===Number(id);});
   if(!e) return;
@@ -1609,7 +1614,7 @@ function confirmarSaidaEquip(id){
 }
 
 function excluirEquip(id){
-  if(perfil !== 'Coordenador') return;
+  if(!ehCoordenador()) return;
   var e = db.equip.find(function(x){ return x.id === id; });
   if (!e) return;
   
@@ -1660,7 +1665,7 @@ async function agendaEmprestimos(){
       '<div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-5 text-sm"><b>Não foi possível carregar a agenda.</b><p class="mt-2">Confira a conexão com o Supabase e se a tabela <code>ls_agenda_emprestimos</code> foi criada.</p></div>');
     return;
   }
-  var esCoord = perfil === 'Coordenador';
+  var esCoord = ehCoordenador();
   var dias = ['Segunda','Terça','Quarta','Quinta','Sexta'];
   var hoje = dataLocalISO(new Date());
   var totalEquip = (db.equip||[]).length;
@@ -1783,7 +1788,7 @@ async function agendaReservar(equipId,data){
   agendaAbrirFormulario('Nova reserva','Escolha o professor, o equipamento, a data e a quantidade.',campos,{acao:'reservar',data:data,equipId:eq.id});
 }
 async function agendaEditar(id){
-  if(perfil!=='Coordenador') return msg('Somente o coordenador pode alterar reservas.','error');
+  if(!ehCoordenador()) return msg('Somente o coordenador pode alterar reservas.','error');
   try{
     var rows=await sbRequest('ls_agenda_emprestimos','GET','select=*&id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola)+'&limit=1');
     if(!rows||!rows.length) return msg('Reserva não encontrada.','error');
@@ -1800,7 +1805,7 @@ async function agendaEditar(id){
   }catch(err){console.error(err);msg('Não foi possível carregar a reserva.','error');}
 }
 async function agendaCancelar(id){
-  if(perfil!=='Coordenador') return msg('Somente o coordenador pode cancelar reservas.','error');
+  if(!ehCoordenador()) return msg('Somente o coordenador pode cancelar reservas.','error');
   pedirConfirmacao('Deseja realmente cancelar esta reserva? O equipamento ficará disponível nessa data.',async function(){
     try{
       await sbRequest('ls_agenda_emprestimos','DELETE','id=eq.'+encodeURIComponent(id)+'&escola=eq.'+encodeURIComponent(escola));
@@ -2153,7 +2158,7 @@ function exportarHistoricoCSV(){
 }
 
 function historico(){
-  if(perfil !== 'Coordenador') return msg('Acesso negado. Apenas coordenadores podem visualizar o histórico.','error');
+  if(!ehCoordenador()) return msg('Acesso negado. Apenas coordenadores podem visualizar o histórico.','error');
   shell(
     head('Histórico','Controle completo das movimentações do almoxarifado') +
     '<div class="space-y-4">' +
@@ -2179,7 +2184,7 @@ function historico(){
 
 function alertas()
 {
-  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  if(!ehCoordenador()) return msg('Acesso permitido somente ao Coordenador.', 'error');
   
   alertasLidos = true;
 
@@ -2225,7 +2230,7 @@ function imprimirRelatorio(){
     '</tr>';
   }).join('') || '<tr><td colspan="4" style="padding: 10px; text-align: center; color: #666; border: 1px solid #cbd5e1;">Todos os itens estão com saldo dentro do esperado.</td></tr>';
 
-  var secaoCoord = perfil === 'Coordenador' ? 
+  var secaoCoord = ehCoordenador() ? 
     '<h2 style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #0F2C59;">Resumo do Estoque em Alerta</h2>' +
     '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">' +
       '<thead>' +
@@ -2300,7 +2305,7 @@ function exportarRelatorioCSV(tipo){
    - Restauração exclusiva do Coordenador, com confirmação.
    ========================================================= */
 function criarBackupJSON(){
-  if(perfil !== 'Coordenador'){
+  if(!ehCoordenador()){
     notify('Apenas o Coordenador pode gerar backups.', 'error');
     return;
   }
@@ -2335,7 +2340,7 @@ function criarBackupJSON(){
 }
 
 function abrirRestauracaoBackup(){
-  if(perfil !== 'Coordenador'){
+  if(!ehCoordenador()){
     notify('Apenas o Coordenador pode restaurar backups.', 'error');
     return;
   }
@@ -2394,7 +2399,7 @@ function selecionarBackupArquivo(input){
 }
 
 function backupTela(){
-  if(perfil !== 'Coordenador') return msg('Acesso permitido somente ao Coordenador.', 'error');
+  if(!ehCoordenador()) return msg('Acesso permitido somente ao Coordenador.', 'error');
   var totalMat = (db.materiais||[]).length;
   var totalEq = (db.equip||[]).length;
   var totalEmp = (db.emp||[]).length;
